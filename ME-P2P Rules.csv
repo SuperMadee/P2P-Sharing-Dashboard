@@ -1,0 +1,16 @@
+,,,,,,,,,
+,P2P Rules,,,,,Criteria,,,
+,,5 Rupee,"3.127 WS, 25% - 49%",45% of Battery,,,Participation level (WPS),Q2 Response (Excess Energy Willing to share),Assigned Percentage Sharing
+,,7 Rial,"3.167 WS, 25% - 49%",45% of Battery,,,Active Sharer (WS ≥ 3.00),75% - 100%,85%
+,,19 Baht,"2.683 WS, 50% - 74%",60% of Battery,,,Active Sharer (WS ≥ 3.00),50% - 74%,70%
+,,33 Guilder,,,,,Active Sharer (WS ≥ 3.00),25% - 49%,45%
+,,38 Rand,"2.927 WS, 25% - 49%",35% of Battery,,,Active Sharer (WS ≥ 3.00),0% - 24%,20%
+,,40 Guilder,"2.077 WS, 0% - 24%",10% of Battery,,,Moderate Sharer (2.5 ≤ WS < 3.00),75% - 100%,70%
+,,,,,,,Moderate Sharer (2.5 ≤ WS < 3.00),50% - 74%,60%
+,,,,,,,Moderate Sharer (2.5 ≤ WS < 3.00),25% - 49%,35%
+,,,,,,,Moderate Sharer (2.5 ≤ WS < 3.00),0% - 24%,15%
+,,,,,,,Conservative Sharer (2.00 ≤ WS < 2.50),75% - 100%,50%
+,,,,,,,Conservative Sharer (2.00 ≤ WS < 2.50),50% - 74%,40%
+,,,,,,,Conservative Sharer (2.00 ≤ WS < 2.50),25% - 49%,25%
+,,,,,,,Conservative Sharer (2.00 ≤ WS < 2.50),0% - 24%,10%
+,,,,,,,Non Sharer (WS < 2.00),-,0%

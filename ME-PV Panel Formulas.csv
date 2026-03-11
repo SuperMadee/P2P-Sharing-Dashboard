@@ -1,0 +1,35 @@
+,,,,
+,Solar GHI,,,
+,,Month,Clearness Index,Daily Radiation (kWh/m2/day)
+,,Jan,0.634,5.23
+,,Feb,0.653,5.93
+,,Mar,0.677,6.76
+,,Apr,0.678,7.16
+,,May,0.58,6.2
+,,Jun,0.5,5.32
+,,Jul,0.458,4.87
+,,Aug,0.418,4.41
+,,Sep,0.475,4.81
+,,Oct,0.541,5.04
+,,Nov,0.584,4.91
+,,Dec,0.595,4.73
+,,,,
+,Temperature,,,
+,,Month,Daily Temperature,
+,,Jan,24.68,
+,,Feb,25.55,
+,,Mar,27.06,
+,,Apr,28.76,
+,,May,28.53,
+,,Jun,27.33,
+,,Jul,26.6,
+,,Aug,26.37,
+,,Sep,26.31,
+,,Oct,26.21,
+,,Nov,25.65,
+,,Dec,24.72,
+,,,,
+,Panel Details,,,
+,,Name,LONGi Solar LR6-60PB,
+,,Temp Coefficient,-0.38,
+,,Derating Factor,80%,
