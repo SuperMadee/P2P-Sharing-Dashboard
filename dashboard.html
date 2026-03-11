@@ -226,29 +226,8 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                 <input type="number" id="cfg-discountRate" value="5" step="0.5" min="0"> <!-- Default: 5% -->
             </div>
 
-            <!-- High Demand Probability: Chance that any given day is a high-demand day (e.g., hot day, guests) -->
-            <div class="form-group">
-                <label>High Demand Probability (%)</label>
-                <input type="number" id="cfg-highProb" value="20" step="5" min="0" max="100"> <!-- Default: 20% of days are high demand -->
-            </div>
-
-            <!-- High Demand Multiplier: How much higher the energy demand is on high-demand days -->
-            <div class="form-group">
-                <label>High Demand Multiplier</label>
-                <input type="number" id="cfg-highMult" value="1.4" step="0.1" min="1"> <!-- Default: 1.4x normal demand -->
-            </div>
-
-            <!-- Low Demand Probability: Chance that any given day is a low-demand day (e.g., vacation, mild weather) -->
-            <div class="form-group">
-                <label>Low Demand Probability (%)</label>
-                <input type="number" id="cfg-lowProb" value="20" step="5" min="0" max="100"> <!-- Default: 20% of days are low demand -->
-            </div>
-
-            <!-- Low Demand Multiplier: How much lower the energy demand is on low-demand days -->
-            <div class="form-group">
-                <label>Low Demand Multiplier</label>
-                <input type="number" id="cfg-lowMult" value="0.6" step="0.1" min="0.1" max="1"> <!-- Default: 0.6x normal demand -->
-            </div>
+            <!-- Note: Demand variation parameters (High/Low probability and multiplier) are now per-household.
+                 Configure them in each household card below. -->
         </div>
     </div>
 
@@ -261,7 +240,7 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 <div id="tab-simulate" class="tab-content">
     <div class="section-title">Run Simulation</div>                      <!-- Section header -->
     <div class="card">
-        <p style="margin-bottom:12px;color:var(--text-sec)">Run a full year (365 days, 8760 hours) P2P energy sharing simulation with randomized demand variation per household.</p> <!-- Description text -->
+        <p style="margin-bottom:12px;color:var(--text-sec)">Run a full year (365 days, 8760 hours) P2P energy sharing simulation. P2P Logic: PV priority → Battery (stops at 20% SoC) → P2P pool (SoC threshold) → Grid. Each household has independent demand variation. Battery sharing is capped daily per household's assigned %.</p> <!-- Description text -->
         <div class="sim-controls">                                       <!-- Row containing run button and progress text -->
             <button class="btn btn-primary" id="btn-run" onclick="runSimulation()">Run Simulation</button> <!-- Main simulation trigger button -->
             <span id="sim-progress-text" style="font-size:13px;color:var(--text-sec)"></span> <!-- Shows percentage during simulation -->
@@ -306,7 +285,7 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 <div id="tab-optimizer" class="tab-content">
     <div class="section-title">PV & Battery Optimizer</div>              <!-- Section header -->
     <div class="card">
-        <p style="margin-bottom:16px;color:var(--text-sec)">Automatically find the optimal PV capacity and battery count for each household to minimize LCOE.</p> <!-- Description text -->
+        <p style="margin-bottom:16px;color:var(--text-sec)">Homeowner PV Setup Optimizer: Based on HOMER Pro PV + Batt setup P2P simulation, find the optimal PV and battery combination that fits well with self-sustaining and P2P sharing. Minimizes LCOE while respecting P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds).</p> <!-- Description text -->
         <div class="grid-3" style="margin-bottom:16px">                  <!-- 3-column grid for optimizer settings -->
 
             <!-- Dropdown to select which household to optimize -->
@@ -411,12 +390,12 @@ const LOAD = [
 // These defaults can be modified by the user in the Setup tab
 // =====================================================================
 const DEFAULT_HH = [
-    { name:'5 Rupee',    pv:3,  battCount:1, ws:3.127, sharingPct:0.45, battSharePct:0.45 },  // Active Sharer: WS=3.127, shares 45% of excess PV, 45% of battery
-    { name:'7 Rial',     pv:3,  battCount:1, ws:3.167, sharingPct:0.45, battSharePct:0.45 },  // Active Sharer: WS=3.167, shares 45% of excess PV, 45% of battery
-    { name:'19 Baht',    pv:4,  battCount:1, ws:2.683, sharingPct:0.60, battSharePct:0.60 },  // Moderate Sharer: WS=2.683, shares 60% of excess PV, 60% of battery
-    { name:'33 Guilder', pv:10, battCount:3, ws:2.500, sharingPct:0.35, battSharePct:0.35 },  // Moderate Sharer: WS=2.500, shares 35% (default - no CSV data provided)
-    { name:'38 Rand',    pv:5,  battCount:2, ws:2.927, sharingPct:0.45, battSharePct:0.35 },  // Moderate Sharer: WS=2.927, shares 45% of excess PV, 35% of battery
-    { name:'40 Guilder', pv:5,  battCount:2, ws:2.077, sharingPct:0.10, battSharePct:0.10 }   // Conservative Sharer: WS=2.077, shares only 10% - least cooperative
+    { name:'5 Rupee',    pv:3,  battCount:1, ws:3.127, sharingPct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Active Sharer: WS=3.127, shares 45% of excess PV, 45% of battery
+    { name:'7 Rial',     pv:3,  battCount:1, ws:3.167, sharingPct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Active Sharer: WS=3.167, shares 45% of excess PV, 45% of battery
+    { name:'19 Baht',    pv:4,  battCount:1, ws:2.683, sharingPct:0.60, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: WS=2.683, shares 60% of excess PV, 60% of battery
+    { name:'33 Guilder', pv:10, battCount:3, ws:2.500, sharingPct:0.35, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: WS=2.500, shares 35% (default - no CSV data provided)
+    { name:'38 Rand',    pv:5,  battCount:2, ws:2.927, sharingPct:0.45, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: WS=2.927, shares 45% of excess PV, 35% of battery
+    { name:'40 Guilder', pv:5,  battCount:2, ws:2.077, sharingPct:0.10, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }   // Conservative Sharer: WS=2.077, shares only 10% - least cooperative
 ];
 
 // Deep copy of defaults into working array (so defaults are preserved if user resets)
@@ -499,13 +478,11 @@ function getGlobalConfig() {
         battCost: +document.getElementById('cfg-battCost').value,         // Capital cost per kWh of battery in ₱
         lifetime: +document.getElementById('cfg-lifetime').value,         // System lifetime in years (for LCOE amortization)
         discountRate: +document.getElementById('cfg-discountRate').value / 100, // Annual discount rate (converted from % to decimal)
-        highProb: +document.getElementById('cfg-highProb').value / 100,   // Probability of a high-demand day (converted from % to decimal)
-        highMult: +document.getElementById('cfg-highMult').value,         // Demand multiplier on high-demand days (e.g., 1.4 = 40% more)
-        lowProb: +document.getElementById('cfg-lowProb').value / 100,     // Probability of a low-demand day (converted from % to decimal)
-        lowMult: +document.getElementById('cfg-lowMult').value,           // Demand multiplier on low-demand days (e.g., 0.6 = 40% less)
+        // Note: Demand variation (highProb, highMult, lowProb, lowMult) are now per-household in hhConfigs
         chargeEff: 0.95,      // Battery charging efficiency: 95% of input energy is stored (5% loss as heat)
         dischargeEff: 0.95,   // Battery discharging efficiency: 95% of stored energy is delivered (5% loss)
-        dod: 0.90,            // Depth of Discharge: only 90% of battery capacity is usable (protects battery life)
+        dod: 0.80,            // Depth of Discharge: only 80% of battery capacity is usable (20% reserved - discharging stops at SoC ≤ 20%)
+        minSocPct: 0.20,      // Minimum State of Charge: discharging stops when battery reaches 20% of capacity
         cRate: 0.5            // C-rate: max charge/discharge rate as fraction of capacity (0.5 = half capacity per hour)
     };
 }
@@ -520,6 +497,10 @@ function readHouseholdsFromUI() {
         h.battCount = +document.getElementById(`hh-batt-${i}`).value;    // Read number of battery units from input field
         h.sharingPct = +document.getElementById(`hh-share-${i}`).value / 100; // Read excess PV sharing percentage (convert % to decimal)
         h.battSharePct = +document.getElementById(`hh-battshare-${i}`).value / 100; // Read battery sharing percentage (convert % to decimal)
+        h.highProb = +document.getElementById(`hh-highProb-${i}`).value / 100; // Read per-household high demand probability
+        h.highMult = +document.getElementById(`hh-highMult-${i}`).value;      // Read per-household high demand multiplier
+        h.lowProb = +document.getElementById(`hh-lowProb-${i}`).value / 100;  // Read per-household low demand probability
+        h.lowMult = +document.getElementById(`hh-lowMult-${i}`).value;        // Read per-household low demand multiplier
     });
 }
 
@@ -528,11 +509,14 @@ function readHouseholdsFromUI() {
  * Simulates a full year (365 days × 24 hours) of energy generation,
  * consumption, storage, and P2P sharing for all households.
  *
- * The simulation follows this priority order each hour:
- * 1. Use solar PV generation directly to meet demand
- * 2. Store excess PV in battery / use battery to cover deficit
- * 3. Share excess with P2P network / receive from P2P network
- * 4. Buy remaining deficit from the utility grid
+ * P2P Logic priority order each hour:
+ * 1. PV generated electricity is priority (PV should cover almost all demand)
+ * 2. Saved up charge at battery units (discharge stops at SoC <= 20%)
+ * 3. P2P excess energy pool (eligible sharers must have SoC >= their assigned sharing %)
+ * 4. Buy from grid (last/worst case scenario)
+ *
+ * Battery conditions: Discharging stops at State of Charge (SoC) <= 20%
+ * Daily sharing cap: Each household's battery sharing % applies as a daily limit
  *
  * @param {Array} hhConfigs - Array of household configuration objects
  * @param {Object} cfg - Global configuration parameters
@@ -543,7 +527,8 @@ function simulate(hhConfigs, cfg, progressCb) {
     const rng = new PRNG(12345);                                          // Create seeded random number generator for reproducible results
     const N = hhConfigs.length;                                           // Number of households in the simulation
     const battCap = hhConfigs.map(h => h.battCount * cfg.battCapPerUnit); // Total battery capacity for each household (units × capacity per unit) in kWh
-    const usableCap = battCap.map(c => c * cfg.dod);                      // Usable battery capacity after depth-of-discharge limit in kWh
+    const usableCap = battCap.map(c => c * cfg.dod);                      // Usable battery capacity after depth-of-discharge limit (80%) in kWh
+    const minSoc = battCap.map(c => c * cfg.minSocPct);                   // Minimum SoC floor: discharging stops at 20% of capacity
     const maxRate = battCap.map(c => c * cfg.cRate);                      // Maximum charge/discharge rate per hour for each household in kW
     const soc = battCap.map(c => c * 0.5);                                // Initial State of Charge: start each battery at 50% full
 
@@ -585,12 +570,14 @@ function simulate(hhConfigs, cfg, progressCb) {
         for (let d = 0; d < DAYS_IN_MONTH[m]; d++) {                      // Loop through each day of the month
 
             // Randomly assign demand type for each household independently
-            // This simulates real-world variation: some days are hotter (AC), some are mild
+            // Each household has its own demand variation parameters (per-household, not global)
             const mult = [];                                              // Demand multiplier array, one per household
+            const dailyBattShared = new Array(N).fill(0);                 // Track daily battery energy shared per household (reset each day)
             for (let i = 0; i < N; i++) {                                 // For each household
+                const hh = hhConfigs[i];                                  // Get this household's config (including its own demand params)
                 const r = rng.next();                                     // Generate random number 0-1
-                if (r < cfg.highProb) mult.push(Math.max(1, rng.range(cfg.highMult - 0.1, cfg.highMult + 0.1))); // High demand day: multiply load by ~1.3-1.5x
-                else if (r < cfg.highProb + cfg.lowProb) mult.push(Math.max(0.1, rng.range(cfg.lowMult - 0.1, cfg.lowMult + 0.1))); // Low demand day: multiply load by ~0.5-0.7x
+                if (r < hh.highProb) mult.push(Math.max(1, rng.range(hh.highMult - 0.1, hh.highMult + 0.1))); // High demand day: per-household probability & multiplier
+                else if (r < hh.highProb + hh.lowProb) mult.push(Math.max(0.1, rng.range(hh.lowMult - 0.1, hh.lowMult + 0.1))); // Low demand day: per-household probability & multiplier
                 else mult.push(rng.range(0.9, 1.1));                     // Normal day: slight random variation ±10%
             }
 
@@ -625,11 +612,13 @@ function simulate(hhConfigs, cfg, progressCb) {
                     } else {                                              // CASE 2: PV generates LESS than demand
                         pvDirect = pvGen;                                 // Use all available PV to partially meet demand
                         let need = demand - pvGen;                        // Remaining energy needed after PV
-                        // Discharge battery to cover the remaining demand
-                        const canDischarge = Math.min(need, maxRate[i], soc[i] * cfg.dischargeEff); // Discharge limited by: energy needed, max rate, and available charge
-                        if (canDischarge > 0) {                           // If battery has charge to give
+                        // Discharge battery to cover the remaining demand (stops at 20% SoC floor)
+                        const availableSoc = Math.max(0, soc[i] - minSoc[i]); // Available charge above 20% minimum SoC
+                        const canDischarge = Math.min(need, maxRate[i], availableSoc * cfg.dischargeEff); // Discharge limited by: energy needed, max rate, and charge above SoC floor
+                        if (canDischarge > 0) {                           // If battery has charge above 20% floor to give
                             battUsed = canDischarge;                      // Record battery energy used
                             soc[i] -= canDischarge / cfg.dischargeEff;    // Decrease SoC (accounting for discharge losses)
+                            soc[i] = Math.max(minSoc[i], soc[i]);        // Enforce 20% SoC floor
                             need -= canDischarge;                         // Reduce remaining need
                         }
                         deficit = need;                                   // Any remaining need is the deficit (must come from P2P or grid)
@@ -654,11 +643,17 @@ function simulate(hhConfigs, cfg, progressCb) {
                         const offer = s.excess * hhConfigs[s.idx].sharingPct; // Amount offered = excess × willingness to share (from P2P rules)
                         if (offer > 0) { suppliers.push({idx: s.idx, amount: offer, src:'pv'}); totalSupply += offer; } // Add to supply pool
                     }
-                    // Suppliers from battery: share stored energy with the network (only if household has no deficit itself)
-                    if (s.deficit === 0 && soc[s.idx] > 0) {              // Only share battery if household's own needs are fully met
+                    // Suppliers from battery: share stored energy with the network
+                    // Requirements: (1) no deficit, (2) SoC% >= sharing% threshold, (3) above 20% SoC floor
+                    const socPct = battCap[s.idx] > 0 ? soc[s.idx] / battCap[s.idx] : 0; // Current SoC as percentage of total capacity
+                    const dailyCap = battCap[s.idx] * hhConfigs[s.idx].battSharePct;      // Daily battery sharing cap = battSharePct × total battery capacity
+                    const dailyRemaining = Math.max(0, dailyCap - dailyBattShared[s.idx]); // Remaining daily sharing allowance
+                    if (s.deficit === 0 && soc[s.idx] > minSoc[s.idx] && socPct >= hhConfigs[s.idx].battSharePct) { // Only share if: no deficit, above SoC floor, SoC% >= sharing threshold
+                        const availableForShare = Math.max(0, soc[s.idx] - minSoc[s.idx]); // Available charge above 20% floor
                         const battOffer = Math.min(                       // Battery energy offered to network
-                            soc[s.idx] * hhConfigs[s.idx].battSharePct * cfg.dischargeEff, // Limited by: stored charge × sharing percentage × efficiency
-                            maxRate[s.idx] * 0.5                          // Limited by: half of max discharge rate (reserve some capacity)
+                            availableForShare * cfg.dischargeEff,         // Limited by: charge above SoC floor × efficiency
+                            maxRate[s.idx] * 0.5,                         // Limited by: half of max discharge rate (reserve some capacity)
+                            dailyRemaining * cfg.dischargeEff             // Limited by: remaining daily sharing allowance × efficiency
                         );
                         if (battOffer > 0) { suppliers.push({idx: s.idx, amount: battOffer, src:'batt'}); totalSupply += battOffer; } // Add battery supply to pool
                     }
@@ -688,7 +683,8 @@ function simulate(hhConfigs, cfg, progressCb) {
                         res[s.idx].monthly[m].p2pOut += shared;           // Track monthly P2P shared
                         if (s.src === 'batt') {                           // If energy came from battery
                             soc[s.idx] -= shared / cfg.dischargeEff;     // Decrease battery SoC (accounting for discharge losses)
-                            soc[s.idx] = Math.max(0, soc[s.idx]);        // Prevent SoC from going negative
+                            soc[s.idx] = Math.max(minSoc[s.idx], soc[s.idx]); // Enforce 20% SoC floor (never discharge below 20%)
+                            dailyBattShared[s.idx] += shared / cfg.dischargeEff; // Track daily battery sharing for daily cap enforcement
                         } else {                                          // If energy came from excess PV
                             hourState.find(x => x.idx === s.idx).excess -= shared; // Reduce the supplier's remaining excess
                         }
@@ -1244,24 +1240,43 @@ function renderHouseholdCards() {
             </div>
             <div class="grid-2">                                           <!-- 2-column grid for input fields -->
                 <div class="form-group">
-                    <label>PV Capacity (kW)</label>                        <!-- Label for PV input -->
-                    <input type="number" id="hh-pv-${i}" value="${h.pv}" min="0" max="50" step="0.5"> <!-- PV capacity input field -->
+                    <label>PV Capacity (kW)</label>
+                    <input type="number" id="hh-pv-${i}" value="${h.pv}" min="0" max="50" step="0.5">
                 </div>
                 <div class="form-group">
-                    <label>Battery Units</label>                           <!-- Label for battery input -->
-                    <input type="number" id="hh-batt-${i}" value="${h.battCount}" min="0" max="20" step="1"> <!-- Battery count input field -->
+                    <label>Battery Units</label>
+                    <input type="number" id="hh-batt-${i}" value="${h.battCount}" min="0" max="20" step="1">
                 </div>
                 <div class="form-group">
-                    <label>Sharing % (Excess PV)</label>                   <!-- Label for PV sharing percentage -->
-                    <input type="number" id="hh-share-${i}" value="${(h.sharingPct*100).toFixed(0)}" min="0" max="100" step="5"> <!-- Sharing percentage input (displayed as %) -->
+                    <label>Sharing % (Excess PV)</label>
+                    <input type="number" id="hh-share-${i}" value="${(h.sharingPct*100).toFixed(0)}" min="0" max="100" step="5">
                 </div>
                 <div class="form-group">
-                    <label>Battery Share %</label>                         <!-- Label for battery sharing percentage -->
-                    <input type="number" id="hh-battshare-${i}" value="${(h.battSharePct*100).toFixed(0)}" min="0" max="100" step="5"> <!-- Battery sharing percentage input -->
+                    <label>Battery Share %</label>
+                    <input type="number" id="hh-battshare-${i}" value="${(h.battSharePct*100).toFixed(0)}" min="0" max="100" step="5">
+                </div>
+            </div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-sec);margin-top:10px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Demand Variation</div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>High Demand Prob (%)</label>
+                    <input type="number" id="hh-highProb-${i}" value="${(h.highProb*100).toFixed(0)}" min="0" max="100" step="5">
+                </div>
+                <div class="form-group">
+                    <label>High Demand Mult</label>
+                    <input type="number" id="hh-highMult-${i}" value="${h.highMult}" min="1" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label>Low Demand Prob (%)</label>
+                    <input type="number" id="hh-lowProb-${i}" value="${(h.lowProb*100).toFixed(0)}" min="0" max="100" step="5">
+                </div>
+                <div class="form-group">
+                    <label>Low Demand Mult</label>
+                    <input type="number" id="hh-lowMult-${i}" value="${h.lowMult}" min="0.1" max="1" step="0.1">
                 </div>
             </div>
             <div style="font-size:12px;color:var(--text-sec);margin-top:8px">
-                WS: ${h.ws.toFixed(3)} | ${p.level}                       <!-- Display Willingness Score and participation level -->
+                WS: ${h.ws.toFixed(3)} | ${p.level} | Battery share daily cap: ${(h.battSharePct*100).toFixed(0)}% of total capacity/day
             </div>
         </div>`;
     }).join('');                                                            // Join all cards into a single HTML string

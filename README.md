@@ -15,18 +15,93 @@ This dashboard simulates a **full year (365 days, 8,760 hours)** of energy gener
 
 ---
 
-## ⚡ How Energy Flows (Priority Logic)
+## ⚡ P2P Logic (Priority Order)
 
 For each hour of the simulation, every household follows this priority order:
 
 ```
-1️⃣  USE SOLAR PV  →  Generated energy goes directly to meet the house's demand
-2️⃣  USE BATTERY   →  If PV isn't enough, discharge the home battery
-3️⃣  ASK NETWORK   →  If still short, request excess energy from other P2P households
-4️⃣  BUY FROM GRID →  Last resort — purchase from the utility grid
+1️⃣  PV GENERATED ELECTRICITY IS PRIORITY
+    PV should cover almost all of household's power demands.
+
+2️⃣  SAVED UP CHARGE AT BATTERY UNITS
+    If PV isn't enough, discharge the home battery.
+    Discharging stops when battery SoC reaches <= 20%.
+
+3️⃣  P2P EXCESS ENERGY POOL
+    If still short, request excess energy from P2P network.
+    Households eligible to share must have SoC >= their assigned sharing %.
+
+4️⃣  BUY FROM GRID (last/worst case scenario)
+    Purchase remaining deficit from the utility grid.
 ```
 
 🔄 Excess solar energy follows the reverse path: charge battery first, then share with the network, then export to grid.
+
+---
+
+## 🔋 Battery Conditions
+
+- 🛑 **20% SoC Floor**: Discharging stops when at State of Charge (SoC) of ≤ 20% of each battery device. This applies to both self-use discharge and P2P sharing.
+- 📉 **Depth of Discharge**: Only 80% of battery capacity is usable (20% reserved).
+- ⚡ **Charge/Discharge Efficiency**: 95% (5% loss each way).
+- ⏱️ **C-Rate**: Max charge/discharge rate is 50% of capacity per hour.
+
+---
+
+## 🤝 P2P Sharing Rules
+
+### 📤 Supplying Energy (Surplus Households)
+- ☀️ **Excess PV sharing**: When a household generates more PV than it needs and its battery is full, it offers a percentage of the excess to the P2P pool based on its assigned sharing %.
+- 🔋 **Battery sharing**: The algorithm monitors each household's total battery % to determine if the house can share excess to others. Eligibility requires:
+  1. The household has no energy deficit itself
+  2. Battery SoC % ≥ the household's assigned battery sharing % (e.g., 5 Rupee with 45% sharing needs SoC ≥ 45%)
+  3. Battery SoC is above the 20% minimum floor
+- ⚖️ **Equal distribution**: The algorithm manages equal distribution of excess energy from households while respecting each homeowner's % of shareable energy.
+
+### 📅 Daily Sharing Cap
+- The shareable energy % metric is **only applicable for 1 day**.
+- Example: 5 Rupee can only share a total of 45% of their total battery's worth of energy per day, if this amount is available.
+- 🔄 The cap resets each day.
+
+### 📥 Receiving Energy (Deficit Households)
+- The algorithm uses assigned sharing allocation % to set the amount of allowable % to get from each household per day.
+- 🚫 P2P sharing does **not** fully charge other household's batteries — it only provides enough to support their electricity demands until their demand is less than their PV + battery generation.
+- ✅ The house in need gets its required energy needs from the P2P pool proportionally.
+
+---
+
+## ☀️ PV Generation Flow
+
+```
+PV Panel ──→ Inverter ──→ Battery
+   │            (* excess generated gets stored into battery)
+   │ Priority
+   │ case
+   ↓
+House Appliance              Battery
+Electricity Demand           ↕
+                     P2P Algo Monitoring
+                     Total Batt % - if house
+                     can share excess to others
+                             ↓
+                      Other Households
+```
+
+- ☀️ PV output meets house demand first (priority case).
+- 🔋 Excess PV generation flows through the inverter and gets stored into the battery.
+- 🔗 The P2P algorithm monitors total battery % to determine if a house can share excess to others.
+
+---
+
+## 🎲 Per-Household Demand Variation
+
+Random demand increase and decrease is a **per-household function** (not a global function). Each household has its own:
+- 📈 **High Demand Probability** — chance of a high-demand day (e.g., hot day, guests)
+- 🔺 **High Demand Multiplier** — how much higher demand is on those days
+- 📉 **Low Demand Probability** — chance of a low-demand day (e.g., vacation, mild weather)
+- 🔻 **Low Demand Multiplier** — how much lower demand is on those days
+
+This means one household can have a high-demand day while another has a low-demand day on the same date. 🏠↕️
 
 ---
 
@@ -40,11 +115,12 @@ Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari
 - **Household Cards** 🏠: Each household can be configured with:
   - ☀️ **PV Capacity (kW)** — Size of the solar panel system
   - 🔋 **Battery Units** — Number of battery units (default 5 kWh each)
-  - 🤝 **Sharing %** — How much of their excess PV energy they're willing to share
-  - 🔋🤝 **Battery Share %** — How much of their stored battery energy they'll offer to the network
+  - 🤝 **Sharing % (Excess PV)** — How much of their excess PV energy they're willing to share
+  - 🔋🤝 **Battery Share %** — How much of their stored battery energy they'll offer to the network (also sets the daily cap and SoC eligibility threshold)
+  - 🎲 **Demand Variation** — Per-household high/low demand probability and multiplier
 
 ### ▶️ Step 3: Simulate Tab — Run the Simulation
-Click **"Run Simulation"** to simulate all 8,760 hours. Each day is randomly assigned as a normal, high-demand 📈, or low-demand 📉 day to add realistic variation.
+Click **"Run Simulation"** to simulate all 8,760 hours. Each household independently gets random demand variation per day based on its own settings. 📈📉
 
 ### 📊 Step 4: Reports Tab — Analyze Results
 - **Summary Cards**: Total P2P energy shared, average LCOE, grid purchases, self-sufficiency
@@ -56,7 +132,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each day is randomly ass
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
 ### 🎯 Step 5: Optimizer Tab — Find the Best Setup
-Select a household (or all) and click **"Run Optimizer"**. It tests every combination of PV size (1–20 kW) and battery count (0–10 units) to find the configuration with the **lowest LCOE** 💡. You can then apply the result with one click.
+**Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV size (1–20 kW) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds). You can apply the result with one click.
 
 ---
 
@@ -67,28 +143,29 @@ Select a household (or all) and click **"Run Optimizer"**. It tests every combin
 | ☀️ **PV (Photovoltaic)** | Solar panels that convert sunlight into electricity |
 | ⚡ **kW (kilowatt)** | A measure of power — the "size" of a solar panel system |
 | 🔌 **kWh (kilowatt-hour)** | A measure of energy — what you actually consume or produce over time |
-| 🔋 **Battery SoC** | State of Charge — how full the battery is (0–100%) |
+| 🔋 **Battery SoC** | State of Charge — how full the battery is (0–100%). Minimum floor: 20% |
 | 💰 **LCOE** | Levelized Cost of Energy — the total cost per kWh over the system's lifetime, including equipment, maintenance, and grid purchases |
 | 🏠 **Self-Sufficiency** | Percentage of demand met without buying from the grid |
 | 🤝 **P2P Sharing** | Households selling/buying excess solar energy directly to/from each other |
 | 🌤️ **GHI** | Global Horizontal Irradiance — how much solar energy hits a flat surface (kWh/m²/day) |
 | 📉 **Derating Factor** | Real-world efficiency loss (dust, wiring, inverter) — set at 80% |
 | 🌡️ **Temp Coefficient** | How panel output drops as temperature rises (-0.38%/°C for this panel) |
+| 📅 **Daily Sharing Cap** | Maximum battery energy a household can share per day (battSharePct × battery capacity) |
 
 ---
 
 ## 🏘️ The 6 Households
 
-Each household has a unique load profile (24-hour energy consumption pattern for each month) and P2P sharing willingness:
+Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
-| Household | Willingness Score | Sharing Level | Notes |
-|-----------|------------------|---------------|-------|
-| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | Shares 45% of excess, 45% of battery |
-| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | Shares 45% of excess, 45% of battery |
-| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | Shares 60% of excess, 60% of battery |
-| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | Largest consumer in the network |
-| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | Shares 45% of excess, 35% of battery |
-| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | Shares only 10% — least cooperative |
+| Household | Willingness Score | Sharing Level | PV Share % | Batt Share % (Daily Cap) |
+|-----------|------------------|---------------|------------|--------------------------|
+| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 45% |
+| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 45% |
+| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 60% |
+| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 35% |
+| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 45% | 35% |
+| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10% |
 
 ---
 
