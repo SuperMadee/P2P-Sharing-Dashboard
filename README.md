@@ -111,7 +111,7 @@ Where:
 ## LCOE Calculation
 
 ```
-LCOE = Annual Total Cost / Annual Energy Consumed ($/kWh)
+LCOE = Annual Total Cost / Annual Energy Consumed (₱/kWh)
 
 Annual Total Cost = Annualized Capital + O&M + Grid Purchases + P2P Purchases − P2P Revenue − Export Revenue
 

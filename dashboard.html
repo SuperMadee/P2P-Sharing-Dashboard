@@ -180,20 +180,20 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 
             <!-- Grid Buy Price: Cost per kWh when household buys electricity from the utility grid -->
             <div class="form-group">
-                <label>Grid Buy Price ($/kWh)</label>
-                <input type="number" id="cfg-gridPrice" value="0.15" step="0.01" min="0"> <!-- Default: $0.15/kWh -->
+                <label>Grid Buy Price (₱/kWh)</label>
+                <input type="number" id="cfg-gridPrice" value="0.15" step="0.01" min="0"> <!-- Default: ₱0.15/kWh -->
             </div>
 
             <!-- P2P Trade Price: Cost per kWh when households trade energy with each other -->
             <div class="form-group">
-                <label>P2P Trade Price ($/kWh)</label>
-                <input type="number" id="cfg-p2pPrice" value="0.10" step="0.01" min="0"> <!-- Default: $0.10/kWh (cheaper than grid) -->
+                <label>P2P Trade Price (₱/kWh)</label>
+                <input type="number" id="cfg-p2pPrice" value="0.10" step="0.01" min="0"> <!-- Default: ₱0.10/kWh (cheaper than grid) -->
             </div>
 
             <!-- Grid Export Price: Revenue per kWh when excess solar is sold back to the grid -->
             <div class="form-group">
-                <label>Grid Sell/Export Price ($/kWh)</label>
-                <input type="number" id="cfg-exportPrice" value="0.04" step="0.01" min="0"> <!-- Default: $0.04/kWh (feed-in tariff) -->
+                <label>Grid Sell/Export Price (₱/kWh)</label>
+                <input type="number" id="cfg-exportPrice" value="0.04" step="0.01" min="0"> <!-- Default: ₱0.04/kWh (feed-in tariff) -->
             </div>
 
             <!-- Battery Unit Capacity: Energy storage capacity of each battery unit in kWh -->
@@ -204,14 +204,14 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 
             <!-- PV Cost: Capital cost per kilowatt of installed solar panel capacity -->
             <div class="form-group">
-                <label>PV Cost ($/kW)</label>
-                <input type="number" id="cfg-pvCost" value="1000" step="50" min="0"> <!-- Default: $1000/kW installed -->
+                <label>PV Cost (₱/kW)</label>
+                <input type="number" id="cfg-pvCost" value="1000" step="50" min="0"> <!-- Default: ₱1000/kW installed -->
             </div>
 
             <!-- Battery Cost: Capital cost per kWh of battery storage capacity -->
             <div class="form-group">
-                <label>Battery Cost ($/kWh)</label>
-                <input type="number" id="cfg-battCost" value="300" step="10" min="0"> <!-- Default: $300/kWh -->
+                <label>Battery Cost (₱/kWh)</label>
+                <input type="number" id="cfg-battCost" value="300" step="10" min="0"> <!-- Default: ₱300/kWh -->
             </div>
 
             <!-- System Lifetime: How many years the PV and battery system will last (for LCOE calculation) -->
@@ -491,12 +491,12 @@ function getPVOutput(pvKW, month, hour) {
  */
 function getGlobalConfig() {
     return {
-        gridPrice: +document.getElementById('cfg-gridPrice').value,       // Grid electricity buy price in $/kWh
-        p2pPrice: +document.getElementById('cfg-p2pPrice').value,         // P2P energy trading price in $/kWh
-        exportPrice: +document.getElementById('cfg-exportPrice').value,   // Grid export (feed-in) price in $/kWh
+        gridPrice: +document.getElementById('cfg-gridPrice').value,       // Grid electricity buy price in ₱/kWh
+        p2pPrice: +document.getElementById('cfg-p2pPrice').value,         // P2P energy trading price in ₱/kWh
+        exportPrice: +document.getElementById('cfg-exportPrice').value,   // Grid export (feed-in) price in ₱/kWh
         battCapPerUnit: +document.getElementById('cfg-battCap').value,    // Capacity of each battery unit in kWh
-        pvCost: +document.getElementById('cfg-pvCost').value,             // Capital cost per kW of PV panels in $
-        battCost: +document.getElementById('cfg-battCost').value,         // Capital cost per kWh of battery in $
+        pvCost: +document.getElementById('cfg-pvCost').value,             // Capital cost per kW of PV panels in ₱
+        battCost: +document.getElementById('cfg-battCost').value,         // Capital cost per kWh of battery in ₱
         lifetime: +document.getElementById('cfg-lifetime').value,         // System lifetime in years (for LCOE amortization)
         discountRate: +document.getElementById('cfg-discountRate').value / 100, // Annual discount rate (converted from % to decimal)
         highProb: +document.getElementById('cfg-highProb').value / 100,   // Probability of a high-demand day (converted from % to decimal)
@@ -560,10 +560,10 @@ function simulate(hhConfigs, cfg, progressCb) {
         gridExported: 0,               // Total kWh exported (sold back) to the grid
         totalDemand: 0,                // Total energy demand over the year in kWh
         totalPV: 0,                    // Total PV energy generated over the year in kWh
-        p2pRevenue: 0,                 // Total revenue earned from P2P sales in $
-        p2pCost: 0,                    // Total cost of P2P purchases in $
-        gridCost: 0,                   // Total cost of grid purchases in $
-        exportRevenue: 0,              // Total revenue from grid exports in $
+        p2pRevenue: 0,                 // Total revenue earned from P2P sales in ₱
+        p2pCost: 0,                    // Total cost of P2P purchases in ₱
+        gridCost: 0,                   // Total cost of grid purchases in ₱
+        exportRevenue: 0,              // Total revenue from grid exports in ₱
         // Monthly breakdown arrays (12 months) for monthly trend charts
         monthly: Array.from({length:12}, () => ({
             demand:0, pvGen:0, pvDirect:0, battUsed:0, p2pIn:0, p2pOut:0, gridIn:0, gridOut:0
@@ -763,18 +763,18 @@ function simulate(hhConfigs, cfg, progressCb) {
     const crf = r > 0 ? r * Math.pow(1+r, n) / (Math.pow(1+r, n) - 1) : 1/n; // If discount rate is 0, simply divide by lifetime
 
     res.forEach((r_item, i) => {                                           // For each household
-        const pvCapCost = hhConfigs[i].pv * cfg.pvCost;                    // PV capital cost = capacity(kW) × cost per kW ($)
-        const battCapCost = battCap[i] * cfg.battCost;                     // Battery capital cost = total capacity(kWh) × cost per kWh ($)
-        const totalCapital = pvCapCost + battCapCost;                      // Total upfront capital investment ($)
-        const annualCapital = totalCapital * crf;                          // Annualized capital cost using CRF ($/year)
+        const pvCapCost = hhConfigs[i].pv * cfg.pvCost;                    // PV capital cost = capacity(kW) × cost per kW (₱)
+        const battCapCost = battCap[i] * cfg.battCost;                     // Battery capital cost = total capacity(kWh) × cost per kWh (₱)
+        const totalCapital = pvCapCost + battCapCost;                      // Total upfront capital investment (₱)
+        const annualCapital = totalCapital * crf;                          // Annualized capital cost using CRF (₱/year)
         const annualOM = totalCapital * 0.01;                              // Annual O&M cost = 1% of capital (industry standard estimate)
-        const annualGridCost = r_item.gridCost;                            // Annual grid electricity purchase cost ($)
-        const annualP2PCost = r_item.p2pCost;                              // Annual P2P energy purchase cost ($)
-        const annualP2PRevenue = r_item.p2pRevenue;                        // Annual P2P energy sale revenue ($)
-        const annualExportRevenue = r_item.exportRevenue;                  // Annual grid export revenue ($)
+        const annualGridCost = r_item.gridCost;                            // Annual grid electricity purchase cost (₱)
+        const annualP2PCost = r_item.p2pCost;                              // Annual P2P energy purchase cost (₱)
+        const annualP2PRevenue = r_item.p2pRevenue;                        // Annual P2P energy sale revenue (₱)
+        const annualExportRevenue = r_item.exportRevenue;                  // Annual grid export revenue (₱)
         // Total annual cost = capital + O&M + grid + P2P purchases - P2P revenue - export revenue
         const totalAnnualCost = annualCapital + annualOM + annualGridCost + annualP2PCost - annualP2PRevenue - annualExportRevenue;
-        r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0; // LCOE = total cost / total energy consumed ($/kWh)
+        r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0; // LCOE = total cost / total energy consumed (₱/kWh)
         r_item.annualCost = totalAnnualCost;                               // Store total annual cost for display
         r_item.capitalCost = totalCapital;                                 // Store capital cost for display
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0; // Self-sufficiency % = (1 - grid fraction) × 100
@@ -782,7 +782,7 @@ function simulate(hhConfigs, cfg, progressCb) {
 
     // ===== POST-SIMULATION: Calculate Network-Wide Totals =====
     const totalP2PShared = res.reduce((s, r_item) => s + r_item.p2pShared, 0); // Sum of all P2P energy shared across network (kWh)
-    const avgLCOE = res.reduce((s, r_item) => s + r_item.lcoe, 0) / N;         // Average LCOE across all households ($/kWh)
+    const avgLCOE = res.reduce((s, r_item) => s + r_item.lcoe, 0) / N;         // Average LCOE across all households (₱/kWh)
     const totalGrid = res.reduce((s, r_item) => s + r_item.gridPurchased, 0);   // Total grid energy purchased by all households (kWh)
     const avgSelfSuff = res.reduce((s, r_item) => s + r_item.selfSufficiency, 0) / N; // Average self-sufficiency across all households (%)
 
@@ -821,9 +821,9 @@ async function runSimulation() {
 
     progBar.style.width = '100%';                                          // Set progress bar to 100%
     progText.textContent = '100%';                                         // Set progress text to 100%
-    addLog(`Simulation complete in ${elapsed}s`);                          // Log completion time
+    addLog(`Simulation complete in ₱{elapsed}s`);                          // Log completion time
     addLog(`Total P2P energy shared: ${simResults.totalP2PShared.toFixed(1)} kWh`); // Log total P2P energy
-    addLog(`Average LCOE: $${simResults.avgLCOE.toFixed(4)}/kWh`);         // Log average LCOE
+    addLog(`Average LCOE: ₱${simResults.avgLCOE.toFixed(4)}/kWh`);         // Log average LCOE
     addLog(`Total grid purchases: ${simResults.totalGrid.toFixed(1)} kWh`); // Log total grid purchases
     addLog(`Average self-sufficiency: ${simResults.avgSelfSuff.toFixed(1)}%`); // Log average self-sufficiency
 
@@ -853,8 +853,8 @@ function renderReports() {
             <div class="sub">Total network energy traded</div>
         </div>
         <div class="card summary-card">
-            <div class="value">$${simResults.avgLCOE.toFixed(3)}</div>         <!-- Average LCOE across all households -->
-            <div class="label">Avg LCOE ($/kWh)</div>
+            <div class="value">₱${simResults.avgLCOE.toFixed(3)}</div>         <!-- Average LCOE across all households -->
+            <div class="label">Avg LCOE (₱/kWh)</div>
             <div class="sub">Across all households</div>
         </div>
         <div class="card summary-card">
@@ -875,7 +875,7 @@ function renderReports() {
         <th>Household</th><th>PV (kW)</th><th>Batt (kWh)</th>
         <th>Demand (kWh)</th><th>PV Direct</th><th>Battery</th>
         <th>P2P Recv</th><th>P2P Shared</th><th>Grid Buy</th>
-        <th>Self-Suff %</th><th>LCOE ($/kWh)</th><th>Annual Cost ($)</th>
+        <th>Self-Suff %</th><th>LCOE (₱/kWh)</th><th>Annual Cost (₱)</th>
     </tr></thead><tbody>` + simResults.households.map((r, i) => `<tr>
         <td><span class="color-dot" style="background:${r.color}"></span>${r.name}</td>   <!-- Household name with color dot -->
         <td>${households[i].pv}</td><td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(1)}</td> <!-- PV size and total battery capacity -->
@@ -992,7 +992,7 @@ function renderChart(type) {
                 data: {
                     labels: names,                                         // X-axis: household names
                     datasets: [{
-                        label: 'LCOE ($/kWh)',                             // Dataset label
+                        label: 'LCOE (₱/kWh)',                             // Dataset label
                         data: hhs.map(h => +h.lcoe.toFixed(4)),           // LCOE values for each household
                         backgroundColor: hhs.map(h => h.color),           // Each bar uses the household's assigned color
                         borderWidth: 0                                     // No border on bars
@@ -1000,8 +1000,8 @@ function renderChart(type) {
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,           // Responsive sizing
-                    plugins: { title: { display: true, text: 'Levelized Cost of Energy by Household ($/kWh)' } }, // Chart title
-                    scales: { y: { title: { display: true, text: '$/kWh' }, beginAtZero: true } } // Y-axis starts at 0
+                    plugins: { title: { display: true, text: 'Levelized Cost of Energy by Household (₱/kWh)' } }, // Chart title
+                    scales: { y: { title: { display: true, text: '₱/kWh' }, beginAtZero: true } } // Y-axis starts at 0
                 }
             };
             break;
@@ -1178,11 +1178,11 @@ async function runOptimizer() {
             <div class="grid-2" style="margin-top:8px">
                 <div>
                     <strong>Current:</strong> PV ${r.currentPV} kW, ${r.currentBatt} batteries (${(r.currentBatt * cfg.battCapPerUnit).toFixed(0)} kWh) <!-- Show current configuration -->
-                    ${r.currentLCOE !== null ? `<br>Current LCOE: $${r.currentLCOE.toFixed(4)}/kWh` : ''} <!-- Show current LCOE if available -->
+                    ${r.currentLCOE !== null ? `<br>Current LCOE: ₱${r.currentLCOE.toFixed(4)}/kWh` : ''} <!-- Show current LCOE if available -->
                 </div>
                 <div>
                     <strong>Optimal:</strong> PV ${r.bestPV} kW, ${r.bestBatt} batteries (${(r.bestBatt * cfg.battCapPerUnit).toFixed(0)} kWh) <!-- Show optimal configuration -->
-                    <br>Optimal LCOE: $${r.bestLCOE.toFixed(4)}/kWh        <!-- Show optimal LCOE -->
+                    <br>Optimal LCOE: ₱${r.bestLCOE.toFixed(4)}/kWh        <!-- Show optimal LCOE -->
                     ${r.currentLCOE !== null ? `<br>Improvement: ${((1 - r.bestLCOE/r.currentLCOE)*100).toFixed(1)}%` : ''} <!-- Show percentage improvement -->
                 </div>
             </div>
