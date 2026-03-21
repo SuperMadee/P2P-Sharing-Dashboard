@@ -147,7 +147,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
 ### 🎯 Step 7: Optimizer Tab — Find the Best Setup
-**Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV size (1–20 kW) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds). You can apply the result with one click.
+**Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV panel count (1–40 panels) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds, inverter efficiency). Inverter capacity is auto-sized to match PV. You can apply the result with one click.
 
 ---
 
