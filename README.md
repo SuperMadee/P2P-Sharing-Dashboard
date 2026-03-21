@@ -73,22 +73,26 @@ For each hour of the simulation, every household follows this priority order:
 ## ☀️ PV Generation Flow
 
 ```
-PV Panel ──→ Inverter ──→ Battery
-   │            (* excess generated gets stored into battery)
-   │ Priority
-   │ case
-   ↓
-House Appliance              Battery
-Electricity Demand           ↕
-                     P2P Algo Monitoring
-                     Total Batt % - if house
-                     can share excess to others
-                             ↓
-                      Other Households
+PV Generation (DC)
+       │
+       ▼
+   Inverter
+   P_AC = min(P_DC × η, P_capacity)
+       │
+       ├──────────────────┐
+       ▼                  ▼
+    Load              Battery
+(House Demand)          ↕
+                  P2P Algorithm
+                  Monitors SoC %
+                        ↓
+                 Other Households
 ```
 
-- ☀️ PV output meets house demand first (priority case).
-- 🔋 Excess PV generation flows through the inverter and gets stored into the battery.
+- ☀️ PV panels generate DC electricity, which the **inverter** converts to AC: **P_AC = min(P_DC × η, P_capacity)**.
+- ⚡ The inverter efficiency (η) represents DC-to-AC conversion loss (~96%).
+- 🏠 PV AC output meets house demand first (priority case).
+- 🔋 Excess PV generation gets stored into the battery.
 - 🔗 The P2P algorithm monitors total battery % to determine if a house can share excess to others.
 
 ---
@@ -110,19 +114,30 @@ This means one household can have a high-demand day while another has a low-dema
 ### 📂 Step 1: Open the File
 Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari). That's it — no installation, no server, no internet needed. ✅
 
-### ⚙️ Step 2: Setup Tab — Configure Parameters
-- **Global Settings**: Grid electricity price, P2P trading price, PV/battery costs, system lifetime, discount rate
+### 📊 Step 2: Load & WPS Tab — Review Load Data
+- View each household's daily load profiles and peak hours/months
+- Review WPS (Willingness Participation Score) for each household
+
+### 🔧 Step 3: Hardware Tab — Configure Equipment
+- **Equipment Data**: Configure specs and costs for each equipment type:
+  - ☀️ **Solar PV** — Capacity per panel (kW), capital (₱/kW), replacement (₱/kW), O&M costs (₱/kW/yr)
+  - 🔋 **Battery** — Unit capacity (kWh), capital (₱/kWh), replacement (₱/kWh), O&M costs (₱/kWh/yr)
+  - ⚡ **Inverter** — Efficiency (%), capital (₱/kW), replacement (₱/kW), O&M costs (₱/kW/yr)
+- **Global Parameters**: Grid buy price, P2P trade price, export price, project lifetime, discount rate
+
+### 🏠 Step 4: Households Tab — Configure Households
 - **Household Cards** 🏠: Each household can be configured with:
-  - ☀️ **PV Capacity (kW)** — Size of the solar panel system
+  - ☀️ **PV Panels** — Number of solar panels (total kW = panels × capacity/panel)
   - 🔋 **Battery Units** — Number of battery units (default 5 kWh each)
-  - 🤝 **Sharing % (Excess PV)** — How much of their excess PV energy they're willing to share
-  - 🔋🤝 **Battery Share %** — How much of their stored battery energy they'll offer to the network (also sets the daily cap and SoC eligibility threshold)
+  - ⚡ **Inverter Capacity (kW)** — Maximum AC output capacity of the inverter
+  - 📊 **WPS Score** — Willingness Participation Score (determines sharer type)
+  - 🤝 **Battery Sharing %** — Unified sharing limit for excess PV and battery energy (also sets daily cap and SoC eligibility threshold)
   - 🎲 **Demand Variation** — Per-household high/low demand probability and multiplier
 
-### ▶️ Step 3: Simulate Tab — Run the Simulation
+### ▶️ Step 5: Simulate Tab — Run the Simulation
 Click **"Run Simulation"** to simulate all 8,760 hours. Each household independently gets random demand variation per day based on its own settings. 📈📉
 
-### 📊 Step 4: Reports Tab — Analyze Results
+### 📊 Step 6: Reports Tab — Analyze Results
 - **Summary Cards**: Total P2P energy shared, average LCOE, grid purchases, self-sufficiency
 - **Charts** 📈 (5 views):
   - 📊 **Energy Breakdown** — Stacked bar showing where each household's energy came from (PV, battery, P2P, grid)
@@ -131,7 +146,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
   - 💰 **LCOE Comparison** — Bar chart comparing cost of energy across households
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
-### 🎯 Step 5: Optimizer Tab — Find the Best Setup
+### 🎯 Step 7: Optimizer Tab — Find the Best Setup
 **Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV size (1–20 kW) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds). You can apply the result with one click.
 
 ---
@@ -148,9 +163,12 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 | 🏠 **Self-Sufficiency** | Percentage of demand met without buying from the grid |
 | 🤝 **P2P Sharing** | Households selling/buying excess solar energy directly to/from each other |
 | 🌤️ **GHI** | Global Horizontal Irradiance — how much solar energy hits a flat surface (kWh/m²/day) |
-| 📉 **Derating Factor** | Real-world efficiency loss (dust, wiring, inverter) — set at 80% |
+| 📉 **Derating Factor** | DC-side real-world efficiency loss (soiling, wiring, mismatch, aging) — set at 80% |
+| ⚡ **Inverter** | Converts DC energy from solar panels to AC. Efficiency ~96%. Output capped at inverter capacity |
 | 🌡️ **Temp Coefficient** | How panel output drops as temperature rises (-0.38%/°C for this panel) |
 | 📅 **Daily Sharing Cap** | Maximum battery energy a household can share per day (battSharePct × battery capacity) |
+| 🔧 **Replacement Cost** | Cost to replace equipment during the project lifetime (annualized in LCOE) |
+| 🛠️ **O&M Cost** | Annual Operation and Maintenance cost per unit of equipment capacity |
 
 ---
 
@@ -158,23 +176,24 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
-| Household | Willingness Score | Sharing Level | PV Share % | Batt Share % (Daily Cap) |
-|-----------|------------------|---------------|------------|--------------------------|
-| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 45% |
-| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 45% |
-| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 60% |
-| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 35% |
-| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 45% | 35% |
-| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10% |
+| Household | WPS | Sharing Level | Sharing % | PV Panels | Inverter (kW) |
+|-----------|-----|---------------|-----------|-----------|---------------|
+| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 6 | 3 |
+| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 6 | 3 |
+| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 8 | 4 |
+| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 20 | 10 |
+| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 10 | 5 |
+| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10 | 5 |
 
 ---
 
 ## 🔬 PV Generation Model
 
-Solar output is calculated hourly using:
+Solar DC output is calculated hourly, then passed through the inverter:
 
 ```
-PV Output (kWh) = PV_capacity × Irradiance × Derating_Factor × Temperature_Correction
+PV_DC (kWh)  = PV_capacity × Irradiance × Derating_Factor × Temperature_Correction
+PV_AC (kWh)  = min(PV_DC × Inverter_Efficiency, Inverter_Capacity)
 ```
 
 Where:
@@ -182,6 +201,8 @@ Where:
 - 🌡️ **Cell Temperature** = Ambient Temp + (NOCT − 20) / 0.8 × Irradiance
 - 📐 **Temperature Correction** = 1 + (−0.38 / 100) × (T_cell − 25°C)
 - 🔧 **Panel**: LONGi Solar LR6-60PB, NOCT = 45°C
+- ⚡ **Inverter Efficiency** (η): DC-to-AC conversion efficiency (default 96%)
+- 🔌 **Inverter Capacity**: Maximum AC output the inverter can deliver (kW). If PV_DC × η exceeds this, output is clipped.
 
 ---
 
@@ -190,11 +211,18 @@ Where:
 ```
 LCOE = Annual Total Cost / Annual Energy Consumed (₱/kWh)
 
-Annual Total Cost = Annualized Capital + O&M + Grid Purchases + P2P Purchases − P2P Revenue − Export Revenue
+Annual Total Cost = Annualized Capital + Annual O&M + Grid Purchases + P2P Purchases − P2P Revenue − Export Revenue
 
-Annualized Capital = (PV Cost + Battery Cost) × CRF
-CRF = r(1+r)^n / ((1+r)^n − 1)    where r = discount rate, n = system lifetime in years
-O&M = 1% of total capital cost per year
+Capital Costs:
+  PV Capital       = PV_kW × PV_Cost_per_kW
+  Battery Capital   = Battery_kWh × Battery_Cost_per_kWh
+  Inverter Capital  = Inverter_kW × Inverter_Cost_per_kW
+  Total Replacement = PV_Replacement + Battery_Replacement + Inverter_Replacement
+
+Annualized Capital = (Total_Capital + Total_Replacement) × CRF
+CRF = r(1+r)^n / ((1+r)^n − 1)    where r = discount rate, n = project lifetime in years
+
+Annual O&M = (PV_kW × PV_OM) + (Battery_kWh × Battery_OM) + (Inverter_kW × Inverter_OM)
 ```
 
 ---
