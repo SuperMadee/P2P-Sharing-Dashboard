@@ -181,7 +181,7 @@ Each household has a unique load profile (24-hour energy consumption pattern for
 | 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 3 | 3 |
 | 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 3 | 3 |
 | 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 4 | 4 |
-| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 10 | 10 |
+| 🏠 33 Guilder | 3.407 | 🟢 Active Sharer | 70% | 10 | 10 |
 | 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 5 | 5 |
 | 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 5 | 5 |
 
