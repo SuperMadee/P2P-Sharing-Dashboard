@@ -212,6 +212,10 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                     <label>O&M Cost (₱/panel/yr)</label>
                     <input type="number" id="cfg-pvOM" value="10" step="1" min="0">
                 </div>
+                <div class="form-group">
+                    <label>Component Lifetime (yrs)</label>
+                    <input type="number" id="cfg-pvLifetime" value="25" step="1" min="1">
+                </div>
             </div>
         </div>
 
@@ -235,6 +239,10 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                     <label>O&M Cost (₱/unit/yr)</label>
                     <input type="number" id="cfg-battOM" value="5" step="1" min="0">
                 </div>
+                <div class="form-group">
+                    <label>Component Lifetime (yrs)</label>
+                    <input type="number" id="cfg-battLifetime" value="10" step="1" min="1">
+                </div>
             </div>
         </div>
 
@@ -243,20 +251,28 @@ tr:hover td { background: #f8fafc; }                               /* Light high
             <div class="equip-label">Inverter</div>
             <div class="grid-4">
                 <div class="form-group">
+                    <label>Rated Capacity (kW)</label>
+                    <input type="number" id="cfg-inverterRatedCap" value="8.2" step="0.1" min="0.1">
+                </div>
+                <div class="form-group">
                     <label>Inverter Efficiency (%)</label>
                     <input type="number" id="cfg-inverterEff" value="96" step="0.5" min="50" max="100">
                 </div>
                 <div class="form-group">
                     <label>Capital Cost (₱/unit)</label>
-                    <input type="number" id="cfg-inverterCost" value="150" step="10" min="0">
+                    <input type="number" id="cfg-inverterCost" value="100000" step="1000" min="0">
                 </div>
                 <div class="form-group">
                     <label>Replacement Cost (₱/unit)</label>
-                    <input type="number" id="cfg-inverterReplaceCost" value="100" step="10" min="0">
+                    <input type="number" id="cfg-inverterReplaceCost" value="100000" step="1000" min="0">
                 </div>
                 <div class="form-group">
                     <label>O&M Cost (₱/unit/yr)</label>
                     <input type="number" id="cfg-inverterOM" value="5" step="1" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Component Lifetime (yrs)</label>
+                    <input type="number" id="cfg-inverterLifetime" value="15" step="1" min="1">
                 </div>
             </div>
         </div>
@@ -532,20 +548,24 @@ function getPVOutput(pvKW, month, hour) {
 function getGlobalConfig() {
     return {
         // Equipment: Solar PV
-        pvCapPerPanel: +document.getElementById('cfg-pvCapPerPanel').value,     // Capacity per panel in kW
-        pvCost: +document.getElementById('cfg-pvCost').value,                   // Capital cost per kW of PV panels in ₱
-        pvReplaceCost: +document.getElementById('cfg-pvReplaceCost').value,     // Replacement cost per kW in ₱
-        pvOM: +document.getElementById('cfg-pvOM').value,                       // Annual O&M cost per kW in ₱
+        pvCapPerPanel: +document.getElementById('cfg-pvCapPerPanel').value,     // Capacity per panel in kW (0.3 standard)
+        pvCost: +document.getElementById('cfg-pvCost').value,                   // Capital cost per panel in ₱
+        pvReplaceCost: +document.getElementById('cfg-pvReplaceCost').value,     // Replacement cost per panel in ₱
+        pvOM: +document.getElementById('cfg-pvOM').value,                       // Annual O&M cost per panel in ₱
+        pvLifetime: +document.getElementById('cfg-pvLifetime').value,           // PV component lifetime in years
         // Equipment: Battery
         battCapPerUnit: +document.getElementById('cfg-battCap').value,          // Capacity of each battery unit in kWh
-        battCost: +document.getElementById('cfg-battCost').value,               // Capital cost per kWh of battery in ₱
-        battReplaceCost: +document.getElementById('cfg-battReplaceCost').value, // Replacement cost per kWh in ₱
-        battOM: +document.getElementById('cfg-battOM').value,                   // Annual O&M cost per kWh in ₱
+        battCost: +document.getElementById('cfg-battCost').value,               // Capital cost per battery unit in ₱
+        battReplaceCost: +document.getElementById('cfg-battReplaceCost').value, // Replacement cost per battery unit in ₱
+        battOM: +document.getElementById('cfg-battOM').value,                   // Annual O&M cost per battery unit in ₱
+        battLifetime: +document.getElementById('cfg-battLifetime').value,       // Battery component lifetime in years
         // Equipment: Inverter
+        inverterRatedCap: +document.getElementById('cfg-inverterRatedCap').value, // Rated capacity of inverter unit in kW
         inverterEff: +document.getElementById('cfg-inverterEff').value / 100,   // Inverter efficiency (decimal)
-        inverterCost: +document.getElementById('cfg-inverterCost').value,       // Capital cost per kW of inverter in ₱
-        inverterReplaceCost: +document.getElementById('cfg-inverterReplaceCost').value, // Replacement cost per kW in ₱
-        inverterOM: +document.getElementById('cfg-inverterOM').value,           // Annual O&M cost per kW in ₱
+        inverterCost: +document.getElementById('cfg-inverterCost').value,       // Capital cost per inverter unit in ₱
+        inverterReplaceCost: +document.getElementById('cfg-inverterReplaceCost').value, // Replacement cost per inverter unit in ₱
+        inverterOM: +document.getElementById('cfg-inverterOM').value,           // Annual O&M cost per inverter unit in ₱
+        inverterLifetime: +document.getElementById('cfg-inverterLifetime').value, // Inverter component lifetime in years
         // Global Parameters
         gridPrice: +document.getElementById('cfg-gridPrice').value,             // Grid electricity buy price in ₱/kWh
         p2pPrice: +document.getElementById('cfg-p2pPrice').value,               // P2P energy trading price in ₱/kWh
@@ -837,36 +857,49 @@ function simulate(hhConfigs, cfg, progressCb) {
     // Formula: CRF = r(1+r)^n / ((1+r)^n - 1)
     const crf = r > 0 ? r * Math.pow(1+r, n) / (Math.pow(1+r, n) - 1) : 1/n; // If discount rate is 0, simply divide by lifetime
 
+    // Helper: compute Present Worth of replacements for a component
+    // PW = Σ(k=1 to m) C_repl / (1+r)^(k × L)
+    // where m = ceil(N/L) - 1 = number of replacements during project lifetime
+    function pwReplacement(replCostPerEvent, compLifetime, projLifetime, discRate) {
+        if (compLifetime <= 0 || compLifetime >= projLifetime) return 0;   // No replacement needed if component outlasts project
+        const m = Math.ceil(projLifetime / compLifetime) - 1;              // Number of replacements
+        let pw = 0;
+        for (let k = 1; k <= m; k++) {
+            pw += replCostPerEvent / Math.pow(1 + discRate, k * compLifetime); // Discount each replacement to present value
+        }
+        return pw;
+    }
+
     res.forEach((r_item, i) => {                                           // For each household
-        // Compute number of units for per-unit cost model
-        const numPanels = Math.ceil(pvCap[i] / cfg.pvCapPerPanel);         // No. of panels = PV capacity / kW per panel
+        // Compute number of units
+        const numPanels = Math.ceil(pvCap[i] / cfg.pvCapPerPanel);         // No. of panels = PV kW / kW per panel
         const numBatt = hhConfigs[i].battCount;                            // Number of battery units
-        const numInv = 1;                                                  // 1 inverter unit per household
+        const hhInvCap = invCap[i];                                        // Household inverter capacity in kW
 
-        // Capital costs (₱/unit × number of units)
-        const pvCapCost = numPanels * cfg.pvCost;                          // Cost of PV = No. of panels × cost per panel
-        const battCapCost = numBatt * cfg.battCost;                        // Cost of battery = No. of units × cost per unit
-        const invCapCost = numInv * cfg.inverterCost;                      // Cost of inverter = 1 × cost per unit
-
-        // Replacement costs (₱/unit × number of units)
-        const pvReplCost = numPanels * cfg.pvReplaceCost;
-        const battReplCost = numBatt * cfg.battReplaceCost;
-        const invReplCost = numInv * cfg.inverterReplaceCost;
-
-        // O&M costs per year (₱/unit/yr × number of units)
-        const annualOM = (numPanels * cfg.pvOM) + (numBatt * cfg.battOM) + (numInv * cfg.inverterOM);
-
-        // Total capital and replacement
+        // ΣCapital costs (₱/unit × number of units)
+        const pvCapCost = numPanels * cfg.pvCost;                          // C_PV = panels × cost per panel
+        const battCapCost = numBatt * cfg.battCost;                        // C_Batt = units × cost per unit
+        const invCapCost = (hhInvCap / cfg.inverterRatedCap) * cfg.inverterCost; // C_Inv = (HH kW / rated kW) × cost per unit
         const totalCapital = pvCapCost + battCapCost + invCapCost;
-        const totalReplacement = pvReplCost + battReplCost + invReplCost;
 
-        // Annual cost = (all Capital + all Replacement) × CRF + O&M + Grid + P2P cost - Revenue
-        const annualCapital = (totalCapital + totalReplacement) * crf;
-        const totalAnnualCost = annualCapital + annualOM + r_item.gridCost + r_item.p2pCost - r_item.p2pRevenue - r_item.exportRevenue;
+        // PW_replacement: present worth of all future replacements
+        const pvReplPerEvent = numPanels * cfg.pvReplaceCost;              // Total PV replacement cost per event
+        const battReplPerEvent = numBatt * cfg.battReplaceCost;            // Total battery replacement cost per event
+        const invReplPerEvent = (hhInvCap / cfg.inverterRatedCap) * cfg.inverterReplaceCost; // Inverter replacement cost per event
+        const pwRepl = pwReplacement(pvReplPerEvent, cfg.pvLifetime, n, r)
+                     + pwReplacement(battReplPerEvent, cfg.battLifetime, n, r)
+                     + pwReplacement(invReplPerEvent, cfg.inverterLifetime, n, r);
+
+        // ΣAnnual O&M costs (₱/unit/yr × number of units)
+        const annualOM = (numPanels * cfg.pvOM) + (numBatt * cfg.battOM)
+                       + ((hhInvCap / cfg.inverterRatedCap) * cfg.inverterOM);
+
+        // LCOE = ((ΣCapital + PW_replacement) × CRF + ΣO&M + Grid) / Annual demand
+        const totalAnnualCost = (totalCapital + pwRepl) * crf + annualOM + r_item.gridCost;
 
         r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0;
         r_item.annualCost = totalAnnualCost;
-        r_item.capitalCost = totalCapital + totalReplacement;
+        r_item.capitalCost = totalCapital;
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0;
     });
 

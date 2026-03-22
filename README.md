@@ -209,27 +209,26 @@ Where:
 ## 💰 LCOE Calculation
 
 ```
-LCOE = Annual Total Cost / Annual Energy Consumed (₱/kWh)
+LCOE = ((ΣCapital + PW_replacement) × CRF + ΣAnnual O&M + Grid) / Annual Demand
 
-No. of Panels = PV Capacity (kW) / Capacity per Panel (0.3 kW standard)
+ΣCapital Costs:
+  C_PV       = No. of Panels × Capital per Panel
+  C_Batt     = No. of Battery Units × Capital per Unit
+  C_Inverter = (Household Inv kW / Rated Inv kW) × Capital per Unit
 
-Capital Costs (₱/unit × number of units):
-  Cost of PV       = No. of Panels × Capital per Panel
-  Cost of Battery  = No. of Battery Units × Capital per Unit
-  Cost of Inverter = 1 × Capital per Unit
+  No. of Panels = PV Capacity (kW) / Capacity per Panel (0.3 kW standard)
 
-Replacement Costs (same structure as capital):
-  Total Replacement = PV_Replacement + Battery_Replacement + Inverter_Replacement
+PW_replacement (Present Worth of future replacements):
+  For each component j (PV, battery, inverter):
+    PW_j = Σ(k=1 to m_j) C_replacement,j / (1+r)^(k × L_j)
 
-O&M Costs (₱/unit/yr × number of units):
-  Annual O&M = (Panels × PV_OM) + (Batt_Units × Batt_OM) + (1 × Inv_OM)
+  L_j = component lifetime (years), set in Hardware tab
+  m_j = ceil(N / L_j) - 1 = number of replacements during project
+  r = discount rate, N = project lifetime
 
-Total Cost Computation = Capital + Replacement + O&M
+ΣAnnual O&M = (Panels × PV_OM) + (Batt_Units × Batt_OM) + (Inv_ratio × Inv_OM)
 
-Annual Cost = (all Capital + all Replacement) × CRF + O&M + Grid Cost + P2P Cost − Revenue
-CRF = r(1+r)^n / ((1+r)^n − 1)    where r = discount rate, n = project lifetime in years
-
-LCOE = Annual Cost / Annual Energy Consumed
+CRF = r(1+r)^N / ((1+r)^N − 1)
 ```
 
 ---
