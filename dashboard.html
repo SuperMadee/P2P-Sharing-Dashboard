@@ -470,7 +470,7 @@ const DEFAULT_HH = [
     { name:'5 Rupee',    pv:3,  battCount:1, inverterCap:3,  ws:3.127, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
     { name:'7 Rial',     pv:3,  battCount:1, inverterCap:3,  ws:3.167, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
     { name:'19 Baht',    pv:4,  battCount:1, inverterCap:4,  ws:2.683, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:2.500, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:3.407, battSharePct:0.70, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
     { name:'38 Rand',    pv:5,  battCount:2, inverterCap:5,  ws:2.927, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
     { name:'40 Guilder', pv:5,  battCount:2, inverterCap:5,  ws:2.077, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
 ];
@@ -897,8 +897,10 @@ function simulate(hhConfigs, cfg, progressCb) {
         // LCOE = ((ΣCapital + PW_replacement) × CRF + ΣO&M + Grid) / Annual demand
         const totalAnnualCost = (totalCapital + pwRepl) * crf + annualOM + r_item.gridCost;
 
-        r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0;
+        r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0;         // Demand-based LCOE
+        r_item.lcoeGen = r_item.totalPV > 0 ? totalAnnualCost / r_item.totalPV : 0;             // Generation-based LCOE
         r_item.annualCost = totalAnnualCost;
+        r_item.capex = totalCapital;                                                             // CAPEX = PV + Battery + Inverter capital
         r_item.capitalCost = totalCapital;
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0;
     });
@@ -996,17 +998,19 @@ function renderReports() {
     const tbl = document.getElementById('results-table');                   // Reference to results table element
     tbl.innerHTML = `<thead><tr>
         <th>Household</th><th>PV (kW)</th><th>Inverter (kW)</th><th>Batt (kWh)</th>
-        <th>Demand (kWh)</th><th>PV Direct</th><th>Battery</th>
+        <th>CAPEX (₱)</th>
+        <th>Demand (kWh)</th><th>PV Gen (kWh)</th><th>PV Direct</th><th>Battery</th>
         <th>P2P Recv</th><th>P2P Shared</th><th>Grid Buy</th>
-        <th>Self-Suff %</th><th>LCOE (₱/kWh)</th><th>Annual Cost (₱)</th>
+        <th>Self-Suff %</th><th>LCOE Demand (₱/kWh)</th><th>LCOE Gen (₱/kWh)</th><th>Annual Cost (₱)</th>
     </tr></thead><tbody>` + simResults.households.map((r, i) => `<tr>
         <td><span class="color-dot" style="background:${r.color}"></span>${r.name}</td>
         <td>${households[i].pv}</td>
         <td>${households[i].inverterCap}</td>
         <td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(2)}</td>
-        <td>${r.totalDemand.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
+        <td>${r.capex.toFixed(0)}</td>
+        <td>${r.totalDemand.toFixed(0)}</td><td>${r.totalPV.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
         <td>${r.p2pReceived.toFixed(0)}</td><td>${r.p2pShared.toFixed(0)}</td><td>${r.gridPurchased.toFixed(0)}</td>
-        <td>${r.selfSufficiency.toFixed(1)}</td><td>${r.lcoe.toFixed(4)}</td><td>${r.annualCost.toFixed(0)}</td>
+        <td>${r.selfSufficiency.toFixed(1)}</td><td>${r.lcoe.toFixed(4)}</td><td>${r.lcoeGen.toFixed(4)}</td><td>${r.annualCost.toFixed(0)}</td>
     </tr>`).join('') + '</tbody>';
 
     renderChart('energy');                                                  // Render the default chart (Energy Breakdown)
@@ -1113,20 +1117,18 @@ function renderChart(type) {
         // Bar chart comparing the Levelized Cost of Energy for each household
         case 'lcoe': {
             config = {
-                type: 'bar',                                               // Bar chart type
+                type: 'bar',
                 data: {
-                    labels: names,                                         // X-axis: household names
-                    datasets: [{
-                        label: 'LCOE (₱/kWh)',                             // Dataset label
-                        data: hhs.map(h => +h.lcoe.toFixed(4)),           // LCOE values for each household
-                        backgroundColor: hhs.map(h => h.color),           // Each bar uses the household's assigned color
-                        borderWidth: 0                                     // No border on bars
-                    }]
+                    labels: names,
+                    datasets: [
+                        { label: 'LCOE Demand-based (₱/kWh)', data: hhs.map(h => +h.lcoe.toFixed(4)), backgroundColor: '#3b82f6', borderWidth: 0 },
+                        { label: 'LCOE Generation-based (₱/kWh)', data: hhs.map(h => +h.lcoeGen.toFixed(4)), backgroundColor: '#22c55e', borderWidth: 0 }
+                    ]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false,           // Responsive sizing
-                    plugins: { title: { display: true, text: 'Levelized Cost of Energy by Household (₱/kWh)' } }, // Chart title
-                    scales: { y: { title: { display: true, text: '₱/kWh' }, beginAtZero: true } } // Y-axis starts at 0
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: 'LCOE Comparison: Demand-based vs Generation-based (₱/kWh)' } },
+                    scales: { y: { title: { display: true, text: '₱/kWh' }, beginAtZero: true } }
                 }
             };
             break;
