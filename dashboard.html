@@ -198,18 +198,18 @@ tr:hover td { background: #f8fafc; }                               /* Light high
             <div class="grid-4">
                 <div class="form-group">
                     <label>Capacity / Panel (kW)</label>
-                    <input type="number" id="cfg-pvCapPerPanel" value="0.5" step="0.1" min="0.1">
+                    <input type="number" id="cfg-pvCapPerPanel" value="0.3" step="0.01" min="0.01">
                 </div>
                 <div class="form-group">
-                    <label>Capital Cost (₱/kW)</label>
+                    <label>Capital Cost (₱/panel)</label>
                     <input type="number" id="cfg-pvCost" value="1000" step="50" min="0">
                 </div>
                 <div class="form-group">
-                    <label>Replacement Cost (₱/kW)</label>
+                    <label>Replacement Cost (₱/panel)</label>
                     <input type="number" id="cfg-pvReplaceCost" value="200" step="10" min="0">
                 </div>
                 <div class="form-group">
-                    <label>O&M Cost (₱/kW/yr)</label>
+                    <label>O&M Cost (₱/panel/yr)</label>
                     <input type="number" id="cfg-pvOM" value="10" step="1" min="0">
                 </div>
             </div>
@@ -221,18 +221,18 @@ tr:hover td { background: #f8fafc; }                               /* Light high
             <div class="grid-4">
                 <div class="form-group">
                     <label>Unit Capacity (kWh)</label>
-                    <input type="number" id="cfg-battCap" value="5" step="0.5" min="0.5">
+                    <input type="number" id="cfg-battCap" value="1.45" step="0.01" min="0.01">
                 </div>
                 <div class="form-group">
-                    <label>Capital Cost (₱/kWh)</label>
+                    <label>Capital Cost (₱/unit)</label>
                     <input type="number" id="cfg-battCost" value="300" step="10" min="0">
                 </div>
                 <div class="form-group">
-                    <label>Replacement Cost (₱/kWh)</label>
+                    <label>Replacement Cost (₱/unit)</label>
                     <input type="number" id="cfg-battReplaceCost" value="200" step="10" min="0">
                 </div>
                 <div class="form-group">
-                    <label>O&M Cost (₱/kWh/yr)</label>
+                    <label>O&M Cost (₱/unit/yr)</label>
                     <input type="number" id="cfg-battOM" value="5" step="1" min="0">
                 </div>
             </div>
@@ -247,15 +247,15 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                     <input type="number" id="cfg-inverterEff" value="96" step="0.5" min="50" max="100">
                 </div>
                 <div class="form-group">
-                    <label>Capital Cost (₱/kW)</label>
+                    <label>Capital Cost (₱/unit)</label>
                     <input type="number" id="cfg-inverterCost" value="150" step="10" min="0">
                 </div>
                 <div class="form-group">
-                    <label>Replacement Cost (₱/kW)</label>
+                    <label>Replacement Cost (₱/unit)</label>
                     <input type="number" id="cfg-inverterReplaceCost" value="100" step="10" min="0">
                 </div>
                 <div class="form-group">
-                    <label>O&M Cost (₱/kW/yr)</label>
+                    <label>O&M Cost (₱/unit/yr)</label>
                     <input type="number" id="cfg-inverterOM" value="5" step="1" min="0">
                 </div>
             </div>
@@ -355,10 +355,10 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                 <select id="opt-household"></select>                     <!-- Populated by JavaScript with household names -->
             </div>
 
-            <!-- Maximum PV panel count the optimizer will test -->
+            <!-- Maximum PV capacity the optimizer will test (in kW) -->
             <div class="form-group">
-                <label>Max PV Panels</label>
-                <input type="number" id="opt-maxPV" value="40" step="1" min="1"> <!-- Default: test up to 40 panels -->
+                <label>Max PV Size (kW)</label>
+                <input type="number" id="opt-maxPV" value="20" step="1" min="1"> <!-- Default: test up to 20 kW -->
             </div>
 
             <!-- Maximum number of battery units the optimizer will test -->
@@ -451,12 +451,12 @@ const LOAD = [
 // These defaults can be modified by the user in the Setup tab
 // =====================================================================
 const DEFAULT_HH = [
-    { name:'5 Rupee',    pvPanels:6,  battCount:1, inverterCap:3,  ws:3.127, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Active Sharer: 6 panels, inverter 3kW
-    { name:'7 Rial',     pvPanels:6,  battCount:1, inverterCap:3,  ws:3.167, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Active Sharer: 6 panels, inverter 3kW
-    { name:'19 Baht',    pvPanels:8,  battCount:1, inverterCap:4,  ws:2.683, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: 8 panels, inverter 4kW
-    { name:'33 Guilder', pvPanels:20, battCount:3, inverterCap:10, ws:2.500, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: 20 panels, inverter 10kW
-    { name:'38 Rand',    pvPanels:10, battCount:2, inverterCap:5,  ws:2.927, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },  // Moderate Sharer: 10 panels, inverter 5kW
-    { name:'40 Guilder', pvPanels:10, battCount:2, inverterCap:5,  ws:2.077, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }   // Conservative Sharer: 10 panels, inverter 5kW
+    { name:'5 Rupee',    pv:3,  battCount:1, inverterCap:3,  ws:3.127, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'7 Rial',     pv:3,  battCount:1, inverterCap:3,  ws:3.167, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'19 Baht',    pv:4,  battCount:1, inverterCap:4,  ws:2.683, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:2.500, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'38 Rand',    pv:5,  battCount:2, inverterCap:5,  ws:2.927, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'40 Guilder', pv:5,  battCount:2, inverterCap:5,  ws:2.077, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
 ];
 
 // Deep copy of defaults into working array (so defaults are preserved if user resets)
@@ -553,8 +553,8 @@ function getGlobalConfig() {
         lifetime: +document.getElementById('cfg-lifetime').value,               // Project lifetime in years
         discountRate: +document.getElementById('cfg-discountRate').value / 100, // Annual discount rate (decimal)
         // Fixed battery parameters
-        chargeEff: 0.95,      // Battery charging efficiency: 95%
-        dischargeEff: 0.95,   // Battery discharging efficiency: 95%
+        chargeEff: 0.922,     // Battery charging efficiency: sqrt(0.85) ≈ 92.2%
+        dischargeEff: 0.922,  // Battery discharging efficiency: sqrt(0.85) ≈ 92.2%
         dod: 0.80,            // Depth of Discharge: 80% usable
         minSocPct: 0.20,      // Minimum SoC floor: 20%
         cRate: 0.5            // C-rate: max charge/discharge = 50% of capacity per hour
@@ -566,14 +566,12 @@ function getGlobalConfig() {
  * and updates the households array with the current values.
  */
 function readHouseholdsFromUI() {
-    const pvCapPerPanel = +document.getElementById('cfg-pvCapPerPanel').value; // Get capacity per panel for PV kW calculation
     households.forEach((h, i) => {
-        h.pvPanels = +document.getElementById(`hh-pvPanels-${i}`).value;      // Number of PV panels
-        h.pv = h.pvPanels * pvCapPerPanel;                                     // Computed total PV capacity in kW
+        h.pv = +document.getElementById(`hh-pv-${i}`).value;                  // PV capacity in kW
         h.battCount = +document.getElementById(`hh-batt-${i}`).value;         // Number of battery units
         h.inverterCap = +document.getElementById(`hh-inverterCap-${i}`).value; // Inverter capacity limit in kW
         h.ws = +document.getElementById(`hh-ws-${i}`).value;                  // WPS (Willingness Participation Score)
-        h.battSharePct = +document.getElementById(`hh-battshare-${i}`).value / 100; // Battery sharing % (unified for PV excess and battery)
+        h.battSharePct = +document.getElementById(`hh-battshare-${i}`).value / 100;
         h.highProb = +document.getElementById(`hh-highProb-${i}`).value / 100;
         h.highMult = +document.getElementById(`hh-highMult-${i}`).value;
         h.lowProb = +document.getElementById(`hh-lowProb-${i}`).value / 100;
@@ -603,8 +601,7 @@ function readHouseholdsFromUI() {
 function simulate(hhConfigs, cfg, progressCb) {
     const rng = new PRNG(12345);                                          // Create seeded random number generator for reproducible results
     const N = hhConfigs.length;                                           // Number of households in the simulation
-    // Compute effective PV capacity from panels × capacity/panel (if pvPanels is set)
-    const pvCap = hhConfigs.map(h => h.pv || (h.pvPanels * cfg.pvCapPerPanel) || 0);
+    const pvCap = hhConfigs.map(h => h.pv || 0);                             // PV capacity in kW per household
     const invEff = cfg.inverterEff || 0.96;                                // Inverter efficiency (DC → AC conversion)
     const invCap = hhConfigs.map((h, i) => h.inverterCap || pvCap[i]); // Inverter capacity limit per household (kW)
     const battCap = hhConfigs.map(h => h.battCount * cfg.battCapPerUnit); // Total battery capacity for each household (units × capacity per unit) in kWh
@@ -841,38 +838,35 @@ function simulate(hhConfigs, cfg, progressCb) {
     const crf = r > 0 ? r * Math.pow(1+r, n) / (Math.pow(1+r, n) - 1) : 1/n; // If discount rate is 0, simply divide by lifetime
 
     res.forEach((r_item, i) => {                                           // For each household
-        const hhPVkW = pvCap[i];                                           // Total PV capacity in kW
-        const hhInvkW = invCap[i];                                         // Inverter capacity in kW
+        // Compute number of units for per-unit cost model
+        const numPanels = Math.ceil(pvCap[i] / cfg.pvCapPerPanel);         // No. of panels = PV capacity / kW per panel
+        const numBatt = hhConfigs[i].battCount;                            // Number of battery units
+        const numInv = 1;                                                  // 1 inverter unit per household
 
-        // Capital costs
-        const pvCapCost = hhPVkW * cfg.pvCost;                             // PV capital cost = kW × ₱/kW
-        const battCapCost = battCap[i] * cfg.battCost;                     // Battery capital cost = kWh × ₱/kWh
-        const invCapCost = hhInvkW * cfg.inverterCost;                     // Inverter capital cost = kW × ₱/kW
+        // Capital costs (₱/unit × number of units)
+        const pvCapCost = numPanels * cfg.pvCost;                          // Cost of PV = No. of panels × cost per panel
+        const battCapCost = numBatt * cfg.battCost;                        // Cost of battery = No. of units × cost per unit
+        const invCapCost = numInv * cfg.inverterCost;                      // Cost of inverter = 1 × cost per unit
 
-        // Replacement costs (treated as additional capital, annualized with CRF)
-        const pvReplCost = hhPVkW * cfg.pvReplaceCost;                     // PV replacement cost
-        const battReplCost = battCap[i] * cfg.battReplaceCost;             // Battery replacement cost
-        const invReplCost = hhInvkW * cfg.inverterReplaceCost;             // Inverter replacement cost
+        // Replacement costs (₱/unit × number of units)
+        const pvReplCost = numPanels * cfg.pvReplaceCost;
+        const battReplCost = numBatt * cfg.battReplaceCost;
+        const invReplCost = numInv * cfg.inverterReplaceCost;
 
-        // Total capital (initial + replacement)
-        const totalCapital = pvCapCost + battCapCost + invCapCost;         // Initial capital investment
-        const totalReplacement = pvReplCost + battReplCost + invReplCost;  // Replacement capital
-        const annualCapital = (totalCapital + totalReplacement) * crf;     // Annualized total capital using CRF
+        // O&M costs per year (₱/unit/yr × number of units)
+        const annualOM = (numPanels * cfg.pvOM) + (numBatt * cfg.battOM) + (numInv * cfg.inverterOM);
 
-        // Explicit O&M costs per year
-        const annualOM = (hhPVkW * cfg.pvOM) + (battCap[i] * cfg.battOM) + (hhInvkW * cfg.inverterOM);
+        // Total capital and replacement
+        const totalCapital = pvCapCost + battCapCost + invCapCost;
+        const totalReplacement = pvReplCost + battReplCost + invReplCost;
 
-        // Energy costs and revenue
-        const annualGridCost = r_item.gridCost;
-        const annualP2PCost = r_item.p2pCost;
-        const annualP2PRevenue = r_item.p2pRevenue;
-        const annualExportRevenue = r_item.exportRevenue;
+        // Annual cost = (all Capital + all Replacement) × CRF + O&M + Grid + P2P cost - Revenue
+        const annualCapital = (totalCapital + totalReplacement) * crf;
+        const totalAnnualCost = annualCapital + annualOM + r_item.gridCost + r_item.p2pCost - r_item.p2pRevenue - r_item.exportRevenue;
 
-        // Total annual cost = capital + O&M + grid + P2P purchases - P2P revenue - export revenue
-        const totalAnnualCost = annualCapital + annualOM + annualGridCost + annualP2PCost - annualP2PRevenue - annualExportRevenue;
         r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0;
         r_item.annualCost = totalAnnualCost;
-        r_item.capitalCost = totalCapital + totalReplacement;              // Total capital including replacement
+        r_item.capitalCost = totalCapital + totalReplacement;
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0;
     });
 
@@ -967,24 +961,20 @@ function renderReports() {
     // ===== Detailed Results Table =====
     // Shows per-household breakdown of all energy flows and costs
     const tbl = document.getElementById('results-table');                   // Reference to results table element
-    const pvCapPerPanel = simResults.cfg.pvCapPerPanel || 0.5;
     tbl.innerHTML = `<thead><tr>
         <th>Household</th><th>PV (kW)</th><th>Inverter (kW)</th><th>Batt (kWh)</th>
         <th>Demand (kWh)</th><th>PV Direct</th><th>Battery</th>
         <th>P2P Recv</th><th>P2P Shared</th><th>Grid Buy</th>
         <th>Self-Suff %</th><th>LCOE (₱/kWh)</th><th>Annual Cost (₱)</th>
-    </tr></thead><tbody>` + simResults.households.map((r, i) => {
-        const totalPV = (households[i].pvPanels || 0) * pvCapPerPanel;
-        return `<tr>
+    </tr></thead><tbody>` + simResults.households.map((r, i) => `<tr>
         <td><span class="color-dot" style="background:${r.color}"></span>${r.name}</td>
-        <td>${households[i].pvPanels || 0}p / ${totalPV.toFixed(1)}kW</td>
-        <td>${households[i].inverterCap || totalPV}</td>
-        <td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(1)}</td>
+        <td>${households[i].pv}</td>
+        <td>${households[i].inverterCap}</td>
+        <td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(2)}</td>
         <td>${r.totalDemand.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
         <td>${r.p2pReceived.toFixed(0)}</td><td>${r.p2pShared.toFixed(0)}</td><td>${r.gridPurchased.toFixed(0)}</td>
         <td>${r.selfSufficiency.toFixed(1)}</td><td>${r.lcoe.toFixed(4)}</td><td>${r.annualCost.toFixed(0)}</td>
-    </tr>`;
-    }).join('') + '</tbody>';
+    </tr>`).join('') + '</tbody>';
 
     renderChart('energy');                                                  // Render the default chart (Energy Breakdown)
 }
@@ -1237,17 +1227,16 @@ async function runOptimizer() {
         let bestLCOE = Infinity, bestPV = 1, bestBatt = 0;                 // Initialize best values (start with worst-case LCOE)
         const testHH = JSON.parse(JSON.stringify(households));              // Deep copy of household configs (modify only the target)
 
-        for (let panels = 1; panels <= maxPV; panels++) {                    // Test each panel count from 1 to maxPV
+        for (let pv = 1; pv <= maxPV; pv++) {                                 // Test each PV size from 1 to maxPV kW
             for (let batt = 0; batt <= maxBatt; batt++) {                  // Test each battery count from 0 to maxBatt
-                testHH[ti].pvPanels = panels;                              // Set test panel count for target household
-                testHH[ti].pv = panels * cfg.pvCapPerPanel;                // Compute total PV capacity in kW
-                testHH[ti].inverterCap = testHH[ti].pv;                    // Auto-size inverter to match PV
+                testHH[ti].pv = pv;                                        // Set test PV capacity in kW
+                testHH[ti].inverterCap = pv;                               // Auto-size inverter to match PV
                 testHH[ti].battCount = batt;                               // Set test battery count for target household
                 const sim = simulate(testHH, cfg, null);                   // Run full year simulation with this configuration
                 const lcoe = sim.households[ti].lcoe;                      // Get the resulting LCOE for the target household
                 if (lcoe < bestLCOE) {                                     // If this LCOE is the best so far
                     bestLCOE = lcoe;                                       // Update best LCOE
-                    bestPV = panels;                                       // Update best panel count
+                    bestPV = pv;                                           // Update best PV kW
                     bestBatt = batt;                                       // Update best battery count
                 }
                 currentStep++;                                             // Increment step counter
@@ -1263,7 +1252,7 @@ async function runOptimizer() {
         results.push({
             name: households[ti].name,
             idx: ti,
-            currentPV: households[ti].pvPanels,                            // Current panel count
+            currentPV: households[ti].pv,                                   // Current PV capacity in kW
             currentBatt: households[ti].battCount,
             bestPV, bestBatt,                                              // Optimal panel count and battery count
             bestLCOE,
@@ -1281,11 +1270,11 @@ async function runOptimizer() {
             <h4>${r.name} - Optimal Configuration</h4>
             <div class="grid-2" style="margin-top:8px">
                 <div>
-                    <strong>Current:</strong> ${r.currentPV} panels (${(r.currentPV * cfg.pvCapPerPanel).toFixed(1)} kW), ${r.currentBatt} batteries (${(r.currentBatt * cfg.battCapPerUnit).toFixed(0)} kWh)
+                    <strong>Current:</strong> PV ${r.currentPV} kW, ${r.currentBatt} batteries (${(r.currentBatt * cfg.battCapPerUnit).toFixed(2)} kWh)
                     ${r.currentLCOE !== null ? `<br>Current LCOE: ₱${r.currentLCOE.toFixed(4)}/kWh` : ''}
                 </div>
                 <div>
-                    <strong>Optimal:</strong> ${r.bestPV} panels (${(r.bestPV * cfg.pvCapPerPanel).toFixed(1)} kW), ${r.bestBatt} batteries (${(r.bestBatt * cfg.battCapPerUnit).toFixed(0)} kWh)
+                    <strong>Optimal:</strong> PV ${r.bestPV} kW, ${r.bestBatt} batteries (${(r.bestBatt * cfg.battCapPerUnit).toFixed(2)} kWh)
                     <br>Optimal LCOE: ₱${r.bestLCOE.toFixed(4)}/kWh
                     ${r.currentLCOE !== null ? `<br>Improvement: ${((1 - r.bestLCOE/r.currentLCOE)*100).toFixed(1)}%` : ''}
                 </div>
@@ -1303,16 +1292,14 @@ async function runOptimizer() {
  * @param {number} pv - Optimal PV capacity in kW
  * @param {number} batt - Optimal number of battery units
  */
-function applyOptimal(idx, panels, batt) {
-    const pvCapPerPanel = +document.getElementById('cfg-pvCapPerPanel').value;
-    households[idx].pvPanels = panels;
-    households[idx].pv = panels * pvCapPerPanel;
-    households[idx].inverterCap = households[idx].pv;                      // Auto-size inverter to PV
+function applyOptimal(idx, pv, batt) {
+    households[idx].pv = pv;
+    households[idx].inverterCap = pv;                                      // Auto-size inverter to PV
     households[idx].battCount = batt;
-    document.getElementById(`hh-pvPanels-${idx}`).value = panels;
-    document.getElementById(`hh-inverterCap-${idx}`).value = households[idx].pv;
+    document.getElementById(`hh-pv-${idx}`).value = pv;
+    document.getElementById(`hh-inverterCap-${idx}`).value = pv;
     document.getElementById(`hh-batt-${idx}`).value = batt;
-    alert(`Applied: ${households[idx].name} → ${panels} panels (${households[idx].pv} kW), ${batt} batteries. Re-run simulation to see updated results.`);
+    alert(`Applied: ${households[idx].name} → PV ${pv} kW, ${batt} batteries. Re-run simulation to see updated results.`);
 }
 
 // =====================================================================
@@ -1352,8 +1339,8 @@ function renderHouseholdCards() {
             </div>
             <div class="grid-2">
                 <div class="form-group">
-                    <label>PV Panels</label>
-                    <input type="number" id="hh-pvPanels-${i}" value="${h.pvPanels}" min="0" max="100" step="1">
+                    <label>PV Capacity (kW)</label>
+                    <input type="number" id="hh-pv-${i}" value="${h.pv}" min="0" max="50" step="0.5">
                 </div>
                 <div class="form-group">
                     <label>Battery Units</label>

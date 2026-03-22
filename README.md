@@ -43,7 +43,7 @@ For each hour of the simulation, every household follows this priority order:
 
 - 🛑 **20% SoC Floor**: Discharging stops when at State of Charge (SoC) of ≤ 20% of each battery device. This applies to both self-use discharge and P2P sharing.
 - 📉 **Depth of Discharge**: Only 80% of battery capacity is usable (20% reserved).
-- ⚡ **Charge/Discharge Efficiency**: 95% (5% loss each way).
+- ⚡ **Charge/Discharge Efficiency**: 92.2% each way (√0.85 round-trip).
 - ⏱️ **C-Rate**: Max charge/discharge rate is 50% of capacity per hour.
 
 ---
@@ -120,15 +120,15 @@ Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari
 
 ### 🔧 Step 3: Hardware Tab — Configure Equipment
 - **Equipment Data**: Configure specs and costs for each equipment type:
-  - ☀️ **Solar PV** — Capacity per panel (kW), capital (₱/kW), replacement (₱/kW), O&M costs (₱/kW/yr)
-  - 🔋 **Battery** — Unit capacity (kWh), capital (₱/kWh), replacement (₱/kWh), O&M costs (₱/kWh/yr)
-  - ⚡ **Inverter** — Efficiency (%), capital (₱/kW), replacement (₱/kW), O&M costs (₱/kW/yr)
+  - ☀️ **Solar PV** — Capacity per panel (kW), capital (₱/panel), replacement (₱/panel), O&M costs (₱/panel/yr)
+  - 🔋 **Battery** — Unit capacity (kWh), capital (₱/unit), replacement (₱/unit), O&M costs (₱/unit/yr)
+  - ⚡ **Inverter** — Efficiency (%), capital (₱/unit), replacement (₱/unit), O&M costs (₱/unit/yr)
 - **Global Parameters**: Grid buy price, P2P trade price, export price, project lifetime, discount rate
 
 ### 🏠 Step 4: Households Tab — Configure Households
 - **Household Cards** 🏠: Each household can be configured with:
-  - ☀️ **PV Panels** — Number of solar panels (total kW = panels × capacity/panel)
-  - 🔋 **Battery Units** — Number of battery units (default 5 kWh each)
+  - ☀️ **PV Capacity (kW)** — Size of the solar panel system
+  - 🔋 **Battery Units** — Number of battery units (default 1.45 kWh each)
   - ⚡ **Inverter Capacity (kW)** — Maximum AC output capacity of the inverter
   - 📊 **WPS Score** — Willingness Participation Score (determines sharer type)
   - 🤝 **Battery Sharing %** — Unified sharing limit for excess PV and battery energy (also sets daily cap and SoC eligibility threshold)
@@ -147,7 +147,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
 ### 🎯 Step 7: Optimizer Tab — Find the Best Setup
-**Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV panel count (1–40 panels) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds, inverter efficiency). Inverter capacity is auto-sized to match PV. You can apply the result with one click.
+**Homeowner PV Setup Optimizer** 💡: Based on HOMER Pro PV + Batt setup P2P simulation report, the optimizer tool finds the optimal PV + Battery combination that fits well with self-sustaining and P2P sharing. It tests every combination of PV size (1–20 kW) and battery count (0–10 units) to find the configuration with the **lowest LCOE** while respecting all P2P rules (20% SoC floor, daily sharing caps, SoC eligibility thresholds, inverter efficiency). Inverter capacity is auto-sized to match PV. You can apply the result with one click.
 
 ---
 
@@ -176,14 +176,14 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
-| Household | WPS | Sharing Level | Sharing % | PV Panels | Inverter (kW) |
-|-----------|-----|---------------|-----------|-----------|---------------|
-| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 6 | 3 |
-| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 6 | 3 |
-| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 8 | 4 |
-| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 20 | 10 |
-| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 10 | 5 |
-| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10 | 5 |
+| Household | WPS | Sharing Level | Sharing % | PV (kW) | Inverter (kW) |
+|-----------|-----|---------------|-----------|---------|---------------|
+| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 3 | 3 |
+| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 3 | 3 |
+| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 4 | 4 |
+| 🏠 33 Guilder | 2.500 | 🟡 Moderate Sharer | 35% | 10 | 10 |
+| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 5 | 5 |
+| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 5 | 5 |
 
 ---
 
@@ -211,18 +211,25 @@ Where:
 ```
 LCOE = Annual Total Cost / Annual Energy Consumed (₱/kWh)
 
-Annual Total Cost = Annualized Capital + Annual O&M + Grid Purchases + P2P Purchases − P2P Revenue − Export Revenue
+No. of Panels = PV Capacity (kW) / Capacity per Panel (0.3 kW standard)
 
-Capital Costs:
-  PV Capital       = PV_kW × PV_Cost_per_kW
-  Battery Capital   = Battery_kWh × Battery_Cost_per_kWh
-  Inverter Capital  = Inverter_kW × Inverter_Cost_per_kW
+Capital Costs (₱/unit × number of units):
+  Cost of PV       = No. of Panels × Capital per Panel
+  Cost of Battery  = No. of Battery Units × Capital per Unit
+  Cost of Inverter = 1 × Capital per Unit
+
+Replacement Costs (same structure as capital):
   Total Replacement = PV_Replacement + Battery_Replacement + Inverter_Replacement
 
-Annualized Capital = (Total_Capital + Total_Replacement) × CRF
+O&M Costs (₱/unit/yr × number of units):
+  Annual O&M = (Panels × PV_OM) + (Batt_Units × Batt_OM) + (1 × Inv_OM)
+
+Total Cost Computation = Capital + Replacement + O&M
+
+Annual Cost = (all Capital + all Replacement) × CRF + O&M + Grid Cost + P2P Cost − Revenue
 CRF = r(1+r)^n / ((1+r)^n − 1)    where r = discount rate, n = project lifetime in years
 
-Annual O&M = (PV_kW × PV_OM) + (Battery_kWh × Battery_OM) + (Inverter_kW × Inverter_OM)
+LCOE = Annual Cost / Annual Energy Consumed
 ```
 
 ---
