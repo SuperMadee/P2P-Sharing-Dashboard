@@ -143,6 +143,12 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 .equip-label { font-size: 13px; font-weight: 700; color: var(--text); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); } /* Equipment type header (Solar PV, Battery, Inverter) */
 .equip-section:first-child .equip-label { margin-top: 0; }        /* No top margin for first equipment label */
 
+/* === Load Table Inputs === */
+#load-table input { width: 60px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 3px; font-size: 11px; text-align: right; }
+#load-table input:focus { outline: none; border-color: var(--primary); background: #eff6ff; }
+#load-table th { font-size: 10px; padding: 6px 4px; }
+#load-table td { padding: 3px 2px; }
+
 /* === Responsive Breakpoints === */
 @media (max-width: 900px) {                                        /* Tablet: reduce grid columns */
     .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; }          /* 3 and 4 column grids become 2 columns */
@@ -179,10 +185,25 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 </div>
 
 <!-- ==================== LOAD & WPS TAB ==================== -->
-<!-- Displays load profile data and editable WPS scores for each household -->
+<!-- Displays editable load profile data and WPS scores for each household -->
 <div id="tab-loadwps" class="tab-content active">
     <div class="section-title">Load Profiles & WPS Data</div>
-    <p style="margin-bottom:16px;color:var(--text-sec);font-size:14px">24-hour energy consumption profiles for each household across 12 months (from ME-Electric Load.csv). WPS scores determine participation level and sharing limits.</p>
+    <p style="margin-bottom:16px;color:var(--text-sec);font-size:14px">Editable 24-hour energy consumption profiles (kWh) for each household across 12 months. Select a household to view/edit its load data.</p>
+
+    <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+            <div class="form-group" style="margin-bottom:0">
+                <label>Select Household</label>
+                <select id="load-hh-select" style="padding:6px 12px;border:1.5px solid var(--border);border-radius:6px" onchange="renderLoadTable()"></select>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="resetLoadData()" style="margin-top:16px">Reset to Default</button>
+        </div>
+        <div style="overflow-x:auto">
+            <table id="load-table" style="font-size:12px"></table>
+        </div>
+    </div>
+
+    <div class="section-title">Household Summary</div>
     <div class="grid-3" id="load-cards"></div>
 </div>
 
@@ -478,6 +499,9 @@ const DEFAULT_HH = [
 // Deep copy of defaults into working array (so defaults are preserved if user resets)
 let households = JSON.parse(JSON.stringify(DEFAULT_HH));
 
+// Mutable copy of load data (editable by user in Load & WPS tab)
+let loadData = JSON.parse(JSON.stringify(LOAD));
+
 // Global variables to store simulation results and the active chart instance
 let simResults = null;  // Holds all simulation output data after running
 let mainChart = null;   // Reference to the current Chart.js chart (destroyed before creating a new one)
@@ -686,7 +710,7 @@ function simulate(hhConfigs, cfg, progressCb) {
                 // Each household independently uses its own PV and battery
                 const hourState = [];                                     // Array to track each household's state this hour
                 for (let i = 0; i < N; i++) {                             // For each household
-                    const demand = LOAD[i][hr][m] * mult[i];              // Calculate actual demand = base load × demand multiplier
+                    const demand = loadData[i][hr][m] * mult[i];           // Calculate actual demand = base load × demand multiplier
                     const pvDC = getPVOutput(pvCap[i], m, hr);            // Calculate PV DC generation for this household's panel size
                     const pvGen = Math.min(pvDC * invEff, invCap[i]);     // Inverter: P_AC = min(P_DC × η, P_capacity) - DC to AC conversion with capacity clipping
                     let pvDirect = 0, battCharged = 0, battUsed = 0, excess = 0, deficit = 0; // Initialize energy flow variables
@@ -894,13 +918,31 @@ function simulate(hhConfigs, cfg, progressCb) {
         const annualOM = (numPanels * cfg.pvOM) + (numBatt * cfg.battOM)
                        + ((hhInvCap / cfg.inverterRatedCap) * cfg.inverterOM);
 
-        // LCOE = ((ΣCapital + PW_replacement) × CRF + ΣO&M + Grid) / Annual demand
-        const totalAnnualCost = (totalCapital + pwRepl) * crf + annualOM + r_item.gridCost;
+        // Base annualized cost (capital + O&M, excluding grid)
+        const annualBase = (totalCapital + pwRepl) * crf + annualOM;
 
-        r_item.lcoe = r_item.totalDemand > 0 ? totalAnnualCost / r_item.totalDemand : 0;         // Demand-based LCOE
-        r_item.lcoeGen = r_item.totalPV > 0 ? totalAnnualCost / r_item.totalPV : 0;             // Generation-based LCOE
-        r_item.annualCost = totalAnnualCost;
-        r_item.capex = totalCapital;                                                             // CAPEX = PV + Battery + Inverter capital
+        // Grid energy calculations
+        // With P2P: E_grid = E_demand - E_PV,direct - E_battery - E_P2P_received (already computed as gridPurchased)
+        const eGridP2P = r_item.gridPurchased;
+        const cGridP2P = eGridP2P * cfg.gridPrice;
+        // Without P2P: E_grid = E_demand - E_PV,direct - E_battery (P2P energy would come from grid instead)
+        const eGridNoP2P = Math.max(0, r_item.totalDemand - r_item.pvDirect - r_item.batteryUsed);
+        const cGridNoP2P = eGridNoP2P * cfg.gridPrice;
+
+        // Generation-based denominators
+        const genDenomP2P = r_item.pvDirect + r_item.batteryUsed + r_item.p2pReceived;   // System output with P2P
+        const genDenomNoP2P = r_item.pvDirect + r_item.batteryUsed;                       // System output without P2P
+
+        // 4 LCOE variants
+        r_item.lcoeDemandP2P = r_item.totalDemand > 0 ? (annualBase + cGridP2P) / r_item.totalDemand : 0;
+        r_item.lcoeDemandNoP2P = r_item.totalDemand > 0 ? (annualBase + cGridNoP2P) / r_item.totalDemand : 0;
+        r_item.lcoeGenP2P = genDenomP2P > 0 ? (annualBase + cGridP2P) / genDenomP2P : 0;
+        r_item.lcoeGenNoP2P = genDenomNoP2P > 0 ? (annualBase + cGridNoP2P) / genDenomNoP2P : 0;
+
+        // Keep legacy fields for compatibility
+        r_item.lcoe = r_item.lcoeDemandP2P;
+        r_item.annualCost = annualBase + cGridP2P;
+        r_item.capex = totalCapital;
         r_item.capitalCost = totalCapital;
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0;
     });
@@ -997,20 +1039,25 @@ function renderReports() {
     // Shows per-household breakdown of all energy flows and costs
     const tbl = document.getElementById('results-table');                   // Reference to results table element
     tbl.innerHTML = `<thead><tr>
-        <th>Household</th><th>PV (kW)</th><th>Inverter (kW)</th><th>Batt (kWh)</th>
+        <th>Household</th><th>PV (kW)</th><th>Inv (kW)</th><th>Batt (kWh)</th>
         <th>CAPEX (₱)</th>
-        <th>Demand (kWh)</th><th>PV Gen (kWh)</th><th>PV Direct</th><th>Battery</th>
-        <th>P2P Recv</th><th>P2P Shared</th><th>Grid Buy</th>
-        <th>Self-Suff %</th><th>LCOE Demand (₱/kWh)</th><th>LCOE Gen (₱/kWh)</th><th>Annual Cost (₱)</th>
+        <th>Demand</th><th>PV Direct</th><th>Battery</th><th>P2P Recv</th><th>Grid Buy</th>
+        <th>Self-Suff %</th>
+        <th>LCOE Demand w/ P2P</th><th>LCOE Demand w/o P2P</th>
+        <th>LCOE Gen w/ P2P</th><th>LCOE Gen w/o P2P</th>
+        <th>Annual Cost (₱)</th>
     </tr></thead><tbody>` + simResults.households.map((r, i) => `<tr>
         <td><span class="color-dot" style="background:${r.color}"></span>${r.name}</td>
         <td>${households[i].pv}</td>
         <td>${households[i].inverterCap}</td>
         <td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(2)}</td>
         <td>${r.capex.toFixed(0)}</td>
-        <td>${r.totalDemand.toFixed(0)}</td><td>${r.totalPV.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
-        <td>${r.p2pReceived.toFixed(0)}</td><td>${r.p2pShared.toFixed(0)}</td><td>${r.gridPurchased.toFixed(0)}</td>
-        <td>${r.selfSufficiency.toFixed(1)}</td><td>${r.lcoe.toFixed(4)}</td><td>${r.lcoeGen.toFixed(4)}</td><td>${r.annualCost.toFixed(0)}</td>
+        <td>${r.totalDemand.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
+        <td>${r.p2pReceived.toFixed(0)}</td><td>${r.gridPurchased.toFixed(0)}</td>
+        <td>${r.selfSufficiency.toFixed(1)}</td>
+        <td>${r.lcoeDemandP2P.toFixed(4)}</td><td>${r.lcoeDemandNoP2P.toFixed(4)}</td>
+        <td>${r.lcoeGenP2P.toFixed(4)}</td><td>${r.lcoeGenNoP2P.toFixed(4)}</td>
+        <td>${r.annualCost.toFixed(0)}</td>
     </tr>`).join('') + '</tbody>';
 
     renderChart('energy');                                                  // Render the default chart (Energy Breakdown)
@@ -1121,13 +1168,15 @@ function renderChart(type) {
                 data: {
                     labels: names,
                     datasets: [
-                        { label: 'LCOE Demand-based (₱/kWh)', data: hhs.map(h => +h.lcoe.toFixed(4)), backgroundColor: '#3b82f6', borderWidth: 0 },
-                        { label: 'LCOE Generation-based (₱/kWh)', data: hhs.map(h => +h.lcoeGen.toFixed(4)), backgroundColor: '#22c55e', borderWidth: 0 }
+                        { label: 'Demand w/ P2P', data: hhs.map(h => +h.lcoeDemandP2P.toFixed(4)), backgroundColor: '#3b82f6', borderWidth: 0 },
+                        { label: 'Demand w/o P2P', data: hhs.map(h => +h.lcoeDemandNoP2P.toFixed(4)), backgroundColor: '#93c5fd', borderWidth: 0 },
+                        { label: 'Gen w/ P2P', data: hhs.map(h => +h.lcoeGenP2P.toFixed(4)), backgroundColor: '#22c55e', borderWidth: 0 },
+                        { label: 'Gen w/o P2P', data: hhs.map(h => +h.lcoeGenNoP2P.toFixed(4)), backgroundColor: '#86efac', borderWidth: 0 }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { title: { display: true, text: 'LCOE Comparison: Demand-based vs Generation-based (₱/kWh)' } },
+                    plugins: { title: { display: true, text: '4 LCOE Comparison (₱/kWh)' } },
                     scales: { y: { title: { display: true, text: '₱/kWh' }, beginAtZero: true } }
                 }
             };
@@ -1451,25 +1500,60 @@ document.getElementById('chart-tabs').addEventListener('click', e => {     // Li
 });
 
 // =====================================================================
-// LOAD & WPS CARDS
-// Renders load profile summary and WPS data for each household
+// LOAD DATA EDITING
+// Renders editable load table and summary cards
 // =====================================================================
+
+/**
+ * Renders the editable 24h × 12month load table for the selected household
+ */
+function renderLoadTable() {
+    const idx = +document.getElementById('load-hh-select').value;
+    const tbl = document.getElementById('load-table');
+    const hours = Array.from({length:24}, (_,h) => String(h).padStart(2,'0') + ':00');
+
+    tbl.innerHTML = `<thead><tr><th>Hour</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>`
+        + hours.map((hr, h) => `<tr><td style="font-weight:600;text-align:left">${hr}</td>`
+            + MONTHS.map((_, m) => `<td><input type="number" step="0.001" min="0" value="${loadData[idx][h][m]}" onchange="updateLoadCell(${idx},${h},${m},this.value)"></td>`).join('')
+            + `</tr>`).join('')
+        + '</tbody>';
+}
+
+/**
+ * Updates a single load cell value
+ */
+function updateLoadCell(hhIdx, hour, month, value) {
+    loadData[hhIdx][hour][month] = Math.max(0, +value || 0);
+    renderLoadCards(); // Refresh summary cards
+}
+
+/**
+ * Resets load data for the selected household back to defaults
+ */
+function resetLoadData() {
+    const idx = +document.getElementById('load-hh-select').value;
+    loadData[idx] = JSON.parse(JSON.stringify(LOAD[idx]));
+    renderLoadTable();
+    renderLoadCards();
+}
+
+/**
+ * Renders summary cards for all households using current loadData
+ */
 function renderLoadCards() {
     const container = document.getElementById('load-cards');
     container.innerHTML = households.map((h, i) => {
         const p = getParticipationLevel(h.ws);
-        // Calculate total monthly consumption from LOAD data
         const monthlyTotals = MONTHS.map((_, m) => {
             let total = 0;
-            for (let hr = 0; hr < 24; hr++) total += LOAD[i][hr][m];
+            for (let hr = 0; hr < 24; hr++) total += loadData[i][hr][m];
             return total;
         });
         const avgDaily = (monthlyTotals.reduce((a, b) => a + b, 0) / 12).toFixed(2);
         const peakMonth = MONTHS[monthlyTotals.indexOf(Math.max(...monthlyTotals))];
-        // Find peak hour (highest average across all months)
         const hourlyAvgs = Array.from({length: 24}, (_, hr) => {
             let sum = 0;
-            for (let m = 0; m < 12; m++) sum += LOAD[i][hr][m];
+            for (let m = 0; m < 12; m++) sum += loadData[i][hr][m];
             return sum / 12;
         });
         const peakHour = hourlyAvgs.indexOf(Math.max(...hourlyAvgs));
@@ -1496,8 +1580,12 @@ function renderLoadCards() {
 }
 
 // ===== INITIALIZE THE DASHBOARD =====
-renderLoadCards();                                                          // Generate load profile cards on page load
-renderHouseholdCards();                                                     // Generate household cards on page load
+// Populate load household selector
+const loadSel = document.getElementById('load-hh-select');
+loadSel.innerHTML = households.map((h, i) => `<option value="${i}">${h.name}</option>`).join('');
+renderLoadTable();                                                          // Generate editable load table
+renderLoadCards();                                                          // Generate load profile summary cards
+renderHouseholdCards();                                                     // Generate household config cards
 
 </script>
 </body>
