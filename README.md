@@ -44,6 +44,7 @@ For each hour of the simulation, every household follows this priority order:
 - 🛑 **20% SoC Floor**: Discharging stops when at State of Charge (SoC) of ≤ 20% of each battery device. This applies to both self-use discharge and P2P sharing.
 - 📉 **Depth of Discharge**: Only 80% of battery capacity is usable (20% reserved).
 - ⚡ **Charge/Discharge Efficiency**: 92.2% each way (√0.85 round-trip).
+- 🔋 **Default Battery Capacity**: 1.45 kWh per unit.
 - ⏱️ **C-Rate**: Max charge/discharge rate is 50% of capacity per hour.
 
 ---
@@ -114,15 +115,17 @@ This means one household can have a high-demand day while another has a low-dema
 ### 📂 Step 1: Open the File
 Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari). That's it — no installation, no server, no internet needed. ✅
 
-### 📊 Step 2: Load & WPS Tab — Review Load Data
+### 📊 Step 2: Load & WPS Tab — Review & Edit Load Data
 - View each household's daily load profiles and peak hours/months
+- **Edit load data** directly in the 24h × 12month table (select a household from the dropdown)
+- Reset to default CSV values with the Reset button
 - Review WPS (Willingness Participation Score) for each household
 
 ### 🔧 Step 3: Hardware Tab — Configure Equipment
 - **Equipment Data**: Configure specs and costs for each equipment type:
-  - ☀️ **Solar PV** — Capacity per panel (kW), capital (₱/panel), replacement (₱/panel), O&M costs (₱/panel/yr)
-  - 🔋 **Battery** — Unit capacity (kWh), capital (₱/unit), replacement (₱/unit), O&M costs (₱/unit/yr)
-  - ⚡ **Inverter** — Efficiency (%), capital (₱/unit), replacement (₱/unit), O&M costs (₱/unit/yr)
+  - ☀️ **Solar PV** — Capacity per panel (0.3 kW standard), capital (₱/panel), replacement (₱/panel), O&M (₱/panel/yr), component lifetime (yrs)
+  - 🔋 **Battery** — Unit capacity (1.45 kWh), capital (₱/unit), replacement (₱/unit), O&M (₱/unit/yr), component lifetime (yrs)
+  - ⚡ **Inverter** — Rated capacity (kW), efficiency (%), capital (₱/unit), replacement (₱/unit), O&M (₱/unit/yr), component lifetime (yrs)
 - **Global Parameters**: Grid buy price, P2P trade price, export price, project lifetime, discount rate
 
 ### 🏠 Step 4: Households Tab — Configure Households
@@ -139,11 +142,12 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 ### 📊 Step 6: Reports Tab — Analyze Results
 - **Summary Cards**: Total P2P energy shared, average LCOE, grid purchases, self-sufficiency
+- **Detailed Results Table**: Per-household CAPEX, 4 LCOE variants, energy flows, self-sufficiency
 - **Charts** 📈 (5 views):
   - 📊 **Energy Breakdown** — Stacked bar showing where each household's energy came from (PV, battery, P2P, grid)
   - 📅 **Monthly Trends** — Line chart of demand, generation, grid use, and P2P trading across the year
   - 🕐 **Daily Profile** — Average hourly energy profile for any household and any month
-  - 💰 **LCOE Comparison** — Bar chart comparing cost of energy across households
+  - 💰 **LCOE Comparison** — 4 LCOE variants side-by-side per household
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
 ### 🎯 Step 7: Optimizer Tab — Find the Best Setup
@@ -160,6 +164,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 | 🔌 **kWh (kilowatt-hour)** | A measure of energy — what you actually consume or produce over time |
 | 🔋 **Battery SoC** | State of Charge — how full the battery is (0–100%). Minimum floor: 20% |
 | 💰 **LCOE** | Levelized Cost of Energy — the total cost per kWh over the system's lifetime, including equipment, maintenance, and grid purchases |
+| 💵 **CAPEX** | Capital Expenditure — total upfront cost of PV + Battery + Inverter |
 | 🏠 **Self-Sufficiency** | Percentage of demand met without buying from the grid |
 | 🤝 **P2P Sharing** | Households selling/buying excess solar energy directly to/from each other |
 | 🌤️ **GHI** | Global Horizontal Irradiance — how much solar energy hits a flat surface (kWh/m²/day) |
@@ -167,8 +172,9 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 | ⚡ **Inverter** | Converts DC energy from solar panels to AC. Efficiency ~96%. Output capped at inverter capacity |
 | 🌡️ **Temp Coefficient** | How panel output drops as temperature rises (-0.38%/°C for this panel) |
 | 📅 **Daily Sharing Cap** | Maximum battery energy a household can share per day (battSharePct × battery capacity) |
-| 🔧 **Replacement Cost** | Cost to replace equipment during the project lifetime (annualized in LCOE) |
-| 🛠️ **O&M Cost** | Annual Operation and Maintenance cost per unit of equipment capacity |
+| 🔧 **Replacement Cost** | Cost to replace equipment during the project lifetime (discounted to present worth) |
+| 🛠️ **O&M Cost** | Annual Operation and Maintenance cost per unit of equipment |
+| ⏳ **Component Lifetime** | How many years each equipment type lasts before needing replacement |
 
 ---
 
@@ -208,8 +214,17 @@ Where:
 
 ## 💰 LCOE Calculation
 
+The dashboard computes **4 LCOE variants** for comparison:
+
+| LCOE Variant | Grid Cost (C_grid) | Denominator |
+|---|---|---|
+| **Demand-based w/ P2P** | E_demand − E_PV,direct − E_battery − E_P2P_received | E_demand |
+| **Demand-based w/o P2P** | E_demand − E_PV,direct − E_battery | E_demand |
+| **Generation-based w/ P2P** | E_demand − E_PV,direct − E_battery − E_P2P_received | E_PV,direct + E_battery + E_P2P_received |
+| **Generation-based w/o P2P** | E_demand − E_PV,direct − E_battery | E_PV,direct + E_battery |
+
 ```
-LCOE = ((ΣCapital + PW_replacement) × CRF + ΣAnnual O&M + Grid) / Annual Demand
+LCOE = ((ΣCapital + PW_replacement) × CRF + ΣO&M + C_grid) / Denominator
 
 ΣCapital Costs:
   C_PV       = No. of Panels × Capital per Panel
@@ -218,6 +233,8 @@ LCOE = ((ΣCapital + PW_replacement) × CRF + ΣAnnual O&M + Grid) / Annual Dema
 
   No. of Panels = PV Capacity (kW) / Capacity per Panel (0.3 kW standard)
 
+  CAPEX = C_PV + C_Batt + C_Inverter
+
 PW_replacement (Present Worth of future replacements):
   For each component j (PV, battery, inverter):
     PW_j = Σ(k=1 to m_j) C_replacement,j / (1+r)^(k × L_j)
@@ -225,6 +242,8 @@ PW_replacement (Present Worth of future replacements):
   L_j = component lifetime (years), set in Hardware tab
   m_j = ceil(N / L_j) - 1 = number of replacements during project
   r = discount rate, N = project lifetime
+
+C_grid = E_grid × P_grid (₱/kWh)
 
 ΣAnnual O&M = (Panels × PV_OM) + (Batt_Units × Batt_OM) + (Inv_ratio × Inv_OM)
 
@@ -240,10 +259,10 @@ The data embedded in the dashboard comes from three CSV files:
 | File | Contents |
 |------|----------|
 | 📄 `ME-Electric Load.csv` | 24-hour × 12-month energy consumption tables for all 6 households (kWh per hour) |
-| 📄 `ME-P2P Rules.csv` | Willingness Scores, sharing percentages, and battery sharing rules per household |
+| 📄 `ME-P2P-Rules.csv` | Willingness Scores, sharing percentages, and battery sharing rules per household |
 | 📄 `ME-PV Panel Formulas.csv` | Monthly solar GHI, ambient temperature, and panel specifications |
 
-> 💡 These are included in the repository for reference but are **not needed to run the dashboard** — all data is already embedded in the HTML file.
+> 💡 These are included in the repository for reference. All data is embedded in the HTML file but **load profiles can be edited** directly in the Load & WPS tab.
 
 ---
 
@@ -253,7 +272,7 @@ The data embedded in the dashboard comes from three CSV files:
 📦 P2P-Sharing-Dashboard
 ├── 🌐 dashboard.html              ← Open this file in your browser (standalone, works offline)
 ├── 📄 ME-Electric Load.csv        ← Source data: household load profiles
-├── 📄 ME-P2P Rules.csv            ← Source data: P2P sharing rules
+├── 📄 ME-P2P-Rules.csv            ← Source data: P2P sharing rules
 ├── 📄 ME-PV Panel Formulas.csv    ← Source data: solar and panel specifications
 └── 📖 README.md                   ← This file
 ```
