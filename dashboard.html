@@ -722,18 +722,15 @@ function simulate(hhConfigs, cfg, progressCb) {
                     if (pvGen >= demand) {                                // CASE 1: PV generates MORE than demand
                         pvDirect = demand;                                // All demand is met by PV directly
                         let rem = pvGen - demand;                         // Remaining excess PV energy after meeting demand
-                        // P2P first: reserve allowable excess for P2P sharing pool (based on sharing %)
-                        excess = rem * hhConfigs[i].battSharePct;         // Portion earmarked for P2P sharing (sent to pool in Phase 2)
-                        rem -= excess;                                    // Remaining energy after P2P allocation
-                        // Then charge battery with whatever is left
+                        // Charge battery with excess PV energy first
                         const spaceLeft = usableCap[i] - soc[i];         // Available space in battery (usable capacity minus current charge)
-                        const canCharge = Math.min(rem, maxRate[i], spaceLeft > 0 ? spaceLeft / cfg.chargeEff : 0); // Charge limited by: remaining available, max charge rate, and space left
+                        const canCharge = Math.min(rem, maxRate[i], spaceLeft > 0 ? spaceLeft / cfg.chargeEff : 0); // Charge limited by: excess available, max charge rate, and space left
                         if (canCharge > 0) {                              // If there's room to charge
                             battCharged = canCharge;                      // Record how much energy went into charging
                             soc[i] += canCharge * cfg.chargeEff;          // Increase SoC (accounting for charging losses)
                             rem -= canCharge;                             // Reduce remaining excess
                         }
-                        excess += rem;                                    // Add any uncharged remainder back to excess (for grid export)
+                        excess = rem;                                     // Any energy still remaining is true excess (can be shared or exported)
                     } else {                                              // CASE 2: PV generates LESS than demand
                         pvDirect = pvGen;                                 // Use all available PV to partially meet demand
                         let need = demand - pvGen;                        // Remaining energy needed after PV
@@ -761,10 +758,11 @@ function simulate(hhConfigs, cfg, progressCb) {
                 // Two-stage supply: PV excess first, then battery. Priority-based demand allocation.
                 const pvSuppliers = [], battSuppliers = [], demanders = []; // Separate PV and battery supplier lists
 
-                // Identify PV suppliers: excess PV already earmarked for P2P in Phase 1
+                // Identify PV suppliers: share a percentage of excess PV after battery charging
                 for (const s of hourState) {
-                    if (s.excess > 0) {                                   // If household has excess PV earmarked for sharing
-                        pvSuppliers.push({idx: s.idx, amount: s.excess}); // Add to PV supply pool (full excess, sharing % already applied in Phase 1)
+                    if (s.excess > 0) {                                   // If household has excess PV after battery charging
+                        const offer = s.excess * hhConfigs[s.idx].battSharePct; // Amount offered = excess × sharing % (unified sharing based on WPS criteria)
+                        if (offer > 0) { pvSuppliers.push({idx: s.idx, amount: offer}); } // Add to PV supply pool
                     }
                     if (s.deficit > 0) {                                  // Demanders: households with remaining deficit after PV and battery
                         demanders.push({idx: s.idx, amount: s.deficit});  // Add to demand pool
