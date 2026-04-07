@@ -487,12 +487,12 @@ const LOAD = [
 // These defaults can be modified by the user in the Setup tab
 // =====================================================================
 const DEFAULT_HH = [
-    { name:'5 Rupee',    pv:3,  battCount:1, inverterCap:3,  ws:3.127, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'7 Rial',     pv:3,  battCount:1, inverterCap:3,  ws:3.167, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'19 Baht',    pv:4,  battCount:1, inverterCap:4,  ws:2.683, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:3.407, battSharePct:0.70, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'38 Rand',    pv:5,  battCount:2, inverterCap:5,  ws:2.927, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'40 Guilder', pv:5,  battCount:2, inverterCap:5,  ws:2.077, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
+    { name:'5 Rupee',    pv:3,  battCount:1, inverterCap:3,  ws:3.127, pvSharePct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'7 Rial',     pv:3,  battCount:1, inverterCap:3,  ws:3.167, pvSharePct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'19 Baht',    pv:4,  battCount:1, inverterCap:4,  ws:2.683, pvSharePct:0.60, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:3.407, pvSharePct:0.70, battSharePct:0.70, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'38 Rand',    pv:5,  battCount:2, inverterCap:5,  ws:2.927, pvSharePct:0.35, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'40 Guilder', pv:5,  battCount:2, inverterCap:5,  ws:2.077, pvSharePct:0.10, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
 ];
 
 // Deep copy of defaults into working array (so defaults are preserved if user resets)
@@ -614,6 +614,7 @@ function readHouseholdsFromUI() {
         h.battCount = +document.getElementById(`hh-batt-${i}`).value;         // Number of battery units
         h.inverterCap = +document.getElementById(`hh-inverterCap-${i}`).value; // Inverter capacity limit in kW
         h.ws = +document.getElementById(`hh-ws-${i}`).value;                  // WPS (Willingness Participation Score)
+        h.pvSharePct = +document.getElementById(`hh-pvshare-${i}`).value / 100;   // Excess PV sharing % (independent from battery)
         h.battSharePct = +document.getElementById(`hh-battshare-${i}`).value / 100;
         h.highProb = +document.getElementById(`hh-highProb-${i}`).value / 100;
         h.highMult = +document.getElementById(`hh-highMult-${i}`).value;
@@ -762,7 +763,7 @@ function simulate(hhConfigs, cfg, progressCb) {
                 for (const s of hourState) {                              // Categorize each household as supplier or demander
                     // Suppliers from excess PV: share a percentage of their surplus
                     if (s.excess > 0) {                                   // If household has excess PV after battery charging
-                        const offer = s.excess * hhConfigs[s.idx].battSharePct; // Amount offered = excess × sharing % (unified sharing based on WPS criteria)
+                        const offer = s.excess * hhConfigs[s.idx].pvSharePct; // Amount offered = excess × excess-PV sharing % (independent from battery)
                         if (offer > 0) { suppliers.push({idx: s.idx, amount: offer, src:'pv'}); totalSupply += offer; } // Add to supply pool
                     }
                     // Suppliers from battery: share stored energy with the network
@@ -1438,7 +1439,11 @@ function renderHouseholdCards() {
                     <input type="number" id="hh-ws-${i}" value="${h.ws}" min="0" max="5" step="0.001">
                 </div>
                 <div class="form-group">
-                    <label>Battery Sharing %</label>
+                    <label>Sharing % (Excess PV)</label>
+                    <input type="number" id="hh-pvshare-${i}" value="${(h.pvSharePct*100).toFixed(0)}" min="0" max="100" step="5">
+                </div>
+                <div class="form-group">
+                    <label>Battery Share %</label>
                     <input type="number" id="hh-battshare-${i}" value="${(h.battSharePct*100).toFixed(0)}" min="0" max="100" step="5">
                 </div>
             </div>
