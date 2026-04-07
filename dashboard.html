@@ -723,15 +723,18 @@ function simulate(hhConfigs, cfg, progressCb) {
                     if (pvGen >= demand) {                                // CASE 1: PV generates MORE than demand
                         pvDirect = demand;                                // All demand is met by PV directly
                         let rem = pvGen - demand;                         // Remaining excess PV energy after meeting demand
-                        // Charge battery with excess PV energy
+                        // P2P first: reserve allowable excess for P2P sharing pool (based on Sharing % Excess PV)
+                        excess = rem * hhConfigs[i].pvSharePct;           // Portion earmarked for P2P pool (sent in Phase 2)
+                        rem -= excess;                                    // Remaining energy after P2P allocation
+                        // Then charge battery with whatever is left
                         const spaceLeft = usableCap[i] - soc[i];         // Available space in battery (usable capacity minus current charge)
-                        const canCharge = Math.min(rem, maxRate[i], spaceLeft > 0 ? spaceLeft / cfg.chargeEff : 0); // Charge limited by: excess available, max charge rate, and space left
+                        const canCharge = Math.min(rem, maxRate[i], spaceLeft > 0 ? spaceLeft / cfg.chargeEff : 0); // Charge limited by: remaining available, max charge rate, and space left
                         if (canCharge > 0) {                              // If there's room to charge
                             battCharged = canCharge;                      // Record how much energy went into charging
                             soc[i] += canCharge * cfg.chargeEff;          // Increase SoC (accounting for charging losses)
                             rem -= canCharge;                             // Reduce remaining excess
                         }
-                        excess = rem;                                     // Any energy still remaining is true excess (can be shared or exported)
+                        excess += rem;                                    // Add any uncharged remainder back to excess (for grid export)
                     } else {                                              // CASE 2: PV generates LESS than demand
                         pvDirect = pvGen;                                 // Use all available PV to partially meet demand
                         let need = demand - pvGen;                        // Remaining energy needed after PV
@@ -756,60 +759,97 @@ function simulate(hhConfigs, cfg, progressCb) {
                 }
 
                 // ===== PHASE 2: P2P (Peer-to-Peer) Energy Sharing =====
-                // Households with excess energy can share with those that have deficits
-                let totalSupply = 0, totalP2PDemand = 0;                  // Track total supply and demand in the P2P pool
-                const suppliers = [], demanders = [];                     // Lists of supplying and demanding households
+                // Two-stage supply: PV excess first, then battery. Priority-based demand allocation.
+                const pvSuppliers = [], battSuppliers = [], demanders = []; // Separate PV and battery supplier lists
 
-                for (const s of hourState) {                              // Categorize each household as supplier or demander
-                    // Suppliers from excess PV: share a percentage of their surplus
-                    if (s.excess > 0) {                                   // If household has excess PV after battery charging
-                        const offer = s.excess * hhConfigs[s.idx].pvSharePct; // Amount offered = excess × excess-PV sharing % (independent from battery)
-                        if (offer > 0) { suppliers.push({idx: s.idx, amount: offer, src:'pv'}); totalSupply += offer; } // Add to supply pool
+                // Identify PV suppliers: excess PV already earmarked for P2P in Phase 1
+                for (const s of hourState) {
+                    if (s.excess > 0) {                                   // If household has excess PV earmarked for sharing
+                        pvSuppliers.push({idx: s.idx, amount: s.excess}); // Add to PV supply pool (sharing % already applied in Phase 1)
                     }
-                    // Suppliers from battery: share stored energy with the network
-                    // Requirements: (1) no deficit, (2) SoC% >= sharing% threshold, (3) above 20% SoC floor
-                    const socPct = battCap[s.idx] > 0 ? soc[s.idx] / battCap[s.idx] : 0; // Current SoC as percentage of total capacity
-                    const dailyCap = battCap[s.idx] * hhConfigs[s.idx].battSharePct;      // Daily battery sharing cap = battSharePct × total battery capacity
-                    const dailyRemaining = Math.max(0, dailyCap - dailyBattShared[s.idx]); // Remaining daily sharing allowance
-                    if (s.deficit === 0 && soc[s.idx] > minSoc[s.idx] && socPct >= hhConfigs[s.idx].battSharePct) { // Only share if: no deficit, above SoC floor, SoC% >= sharing threshold
-                        const availableForShare = Math.max(0, soc[s.idx] - minSoc[s.idx]); // Available charge above 20% floor
-                        const battOffer = Math.min(                       // Battery energy offered to network
-                            availableForShare * cfg.dischargeEff,         // Limited by: charge above SoC floor × efficiency
-                            maxRate[s.idx] * 0.5,                         // Limited by: half of max discharge rate (reserve some capacity)
-                            dailyRemaining * cfg.dischargeEff             // Limited by: remaining daily sharing allowance × efficiency
-                        );
-                        if (battOffer > 0) { suppliers.push({idx: s.idx, amount: battOffer, src:'batt'}); totalSupply += battOffer; } // Add battery supply to pool
+                    if (s.deficit > 0) {                                  // Demanders: households with remaining deficit after PV and battery
+                        demanders.push({idx: s.idx, amount: s.deficit});  // Add to demand pool
                     }
-                    // Demanders: households with remaining deficit after using PV and battery
-                    if (s.deficit > 0) { demanders.push({idx: s.idx, amount: s.deficit}); totalP2PDemand += s.deficit; } // Add to demand pool
                 }
 
-                // Match supply with demand proportionally
-                if (totalSupply > 0 && totalP2PDemand > 0) {              // Only if there are both suppliers AND demanders
-                    const totalShared = Math.min(totalSupply, totalP2PDemand); // Total energy that will actually be traded
-                    const demandRatio = totalP2PDemand > 0 ? Math.min(1, totalSupply / totalP2PDemand) : 0; // What fraction of each demander's need is met (1.0 = fully met)
-                    const supplyRatio = totalSupply > 0 ? totalShared / totalSupply : 0; // What fraction of each supplier's offer is used
+                // Rank deficit households by priority: highest energy need first
+                demanders.sort((a, b) => b.amount - a.amount);            // Sort descending by deficit size
 
-                    // Distribute energy to demanders proportionally
-                    for (const d of demanders) {                          // For each household that needs energy
-                        const received = d.amount * demandRatio;          // Amount received = their need × fraction that can be met
-                        hourState[d.idx].deficit -= received;             // Reduce their deficit by the amount received
+                // --- STAGE 1: Allocate excess PV energy to demanders in priority order ---
+                let totalPvSupply = pvSuppliers.reduce((sum, s) => sum + s.amount, 0); // Total PV available for sharing
+                let remainingPvSupply = totalPvSupply;                     // Track remaining PV pool
+
+                if (remainingPvSupply > 0 && demanders.length > 0) {
+                    for (const d of demanders) {                          // For each demander, highest deficit first
+                        if (remainingPvSupply <= 0) break;                // No more PV to share
+                        const received = Math.min(d.amount, remainingPvSupply); // Give as much as available or needed
+                        d.amount -= received;                             // Reduce demander's remaining deficit
+                        hourState[d.idx].deficit -= received;             // Update hourState deficit
                         res[d.idx].p2pReceived += received;               // Track total P2P energy received
                         res[d.idx].p2pCost += received * cfg.p2pPrice;    // Track cost of buying P2P energy
                         res[d.idx].monthly[m].p2pIn += received;          // Track monthly P2P received
+                        remainingPvSupply -= received;                    // Reduce remaining PV pool
                     }
-                    // Deduct shared energy from suppliers
-                    for (const s of suppliers) {                          // For each household that shared energy
-                        const shared = s.amount * supplyRatio;            // Amount actually shared = their offer × fraction used
-                        res[s.idx].p2pShared += shared;                   // Track total P2P energy shared
-                        res[s.idx].p2pRevenue += shared * cfg.p2pPrice;   // Track revenue earned from P2P sales
-                        res[s.idx].monthly[m].p2pOut += shared;           // Track monthly P2P shared
-                        if (s.src === 'batt') {                           // If energy came from battery
-                            soc[s.idx] -= shared / cfg.dischargeEff;     // Decrease battery SoC (accounting for discharge losses)
-                            soc[s.idx] = Math.max(minSoc[s.idx], soc[s.idx]); // Enforce 20% SoC floor (never discharge below 20%)
-                            dailyBattShared[s.idx] += shared / cfg.dischargeEff; // Track daily battery sharing for daily cap enforcement
-                        } else {                                          // If energy came from excess PV
-                            hourState.find(x => x.idx === s.idx).excess -= shared; // Reduce the supplier's remaining excess
+                    // Deduct shared PV energy from suppliers proportionally
+                    const pvUsed = totalPvSupply - remainingPvSupply;      // Total PV actually shared
+                    if (pvUsed > 0) {
+                        const pvUseRatio = pvUsed / totalPvSupply;        // Fraction of each supplier's PV offer used
+                        for (const s of pvSuppliers) {
+                            const shared = s.amount * pvUseRatio;         // Amount actually shared by this supplier
+                            res[s.idx].p2pShared += shared;               // Track total P2P energy shared
+                            res[s.idx].p2pRevenue += shared * cfg.p2pPrice; // Track revenue earned from P2P sales
+                            res[s.idx].monthly[m].p2pOut += shared;       // Track monthly P2P shared
+                            hourState.find(x => x.idx === s.idx).excess -= shared; // Reduce supplier's remaining excess
+                        }
+                    }
+                }
+
+                // --- STAGE 2: Identify battery suppliers and allocate to remaining demanders ---
+                for (const s of hourState) {
+                    if (s.deficit > 0) continue;                          // Households with deficit can't share battery
+                    const socPct = battCap[s.idx] > 0 ? soc[s.idx] / battCap[s.idx] : 0; // Current SoC as percentage of total capacity
+                    const dailyCap = battCap[s.idx] * hhConfigs[s.idx].battSharePct;      // Daily battery sharing cap
+                    const dailyRemaining = Math.max(0, dailyCap - dailyBattShared[s.idx]); // Remaining daily sharing allowance
+                    if (soc[s.idx] > minSoc[s.idx] && socPct >= hhConfigs[s.idx].battSharePct) { // Only share if: above SoC floor, SoC% >= sharing threshold
+                        const availableForShare = Math.max(0, soc[s.idx] - minSoc[s.idx]); // Available charge above 20% floor
+                        const battOffer = Math.min(                       // Battery energy offered to network
+                            availableForShare * cfg.dischargeEff,         // Limited by: charge above SoC floor × efficiency
+                            maxRate[s.idx] * 0.5,                         // Limited by: half of max discharge rate (reserve capacity)
+                            dailyRemaining * cfg.dischargeEff             // Limited by: remaining daily sharing allowance × efficiency
+                        );
+                        if (battOffer > 0) { battSuppliers.push({idx: s.idx, amount: battOffer}); } // Add battery supply
+                    }
+                }
+
+                let totalBattSupply = battSuppliers.reduce((sum, s) => sum + s.amount, 0); // Total battery available
+                let remainingBattSupply = totalBattSupply;
+
+                // Filter demanders to only those still with deficit after Stage 1
+                const remainingDemanders = demanders.filter(d => d.amount > 0);
+
+                if (remainingBattSupply > 0 && remainingDemanders.length > 0) {
+                    for (const d of remainingDemanders) {                 // For each remaining demander, still in priority order
+                        if (remainingBattSupply <= 0) break;              // No more battery to share
+                        const received = Math.min(d.amount, remainingBattSupply); // Give as much as available or needed
+                        d.amount -= received;                             // Reduce demander's remaining deficit
+                        hourState[d.idx].deficit -= received;             // Update hourState deficit
+                        res[d.idx].p2pReceived += received;               // Track total P2P energy received
+                        res[d.idx].p2pCost += received * cfg.p2pPrice;    // Track cost of buying P2P energy
+                        res[d.idx].monthly[m].p2pIn += received;          // Track monthly P2P received
+                        remainingBattSupply -= received;                  // Reduce remaining battery pool
+                    }
+                    // Deduct shared battery energy from suppliers proportionally
+                    const battUsedTotal = totalBattSupply - remainingBattSupply; // Total battery actually shared
+                    if (battUsedTotal > 0) {
+                        const battUseRatio = battUsedTotal / totalBattSupply; // Fraction of each supplier's battery offer used
+                        for (const s of battSuppliers) {
+                            const shared = s.amount * battUseRatio;       // Amount actually shared by this supplier
+                            res[s.idx].p2pShared += shared;               // Track total P2P energy shared
+                            res[s.idx].p2pRevenue += shared * cfg.p2pPrice; // Track revenue earned from P2P sales
+                            res[s.idx].monthly[m].p2pOut += shared;       // Track monthly P2P shared
+                            soc[s.idx] -= shared / cfg.dischargeEff;      // Decrease battery SoC (accounting for discharge losses)
+                            soc[s.idx] = Math.max(minSoc[s.idx], soc[s.idx]); // Enforce 20% SoC floor
+                            dailyBattShared[s.idx] += shared / cfg.dischargeEff; // Track daily battery sharing for cap enforcement
                         }
                     }
                 }

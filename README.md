@@ -35,7 +35,17 @@ For each hour of the simulation, every household follows this priority order:
     Purchase remaining deficit from the utility grid.
 ```
 
-🔄 Excess solar energy follows the reverse path: charge battery first, then share with the network, then export to grid.
+🔄 **Surplus path** (when PV > demand): a portion of excess PV is sent to the **P2P pool first** (based on the household's Sharing % Excess PV), then any remainder charges the battery, and only what's left over is exported to the grid.
+
+### 🎯 Priority-Based P2P Allocation
+
+The P2P energy pool uses a **priority-ranked, two-stage** matching algorithm each hour:
+
+1. **Identify** households with surplus and households with deficit
+2. **Rank deficit households by priority** — highest energy need served first
+3. **Stage 1 — Excess PV first**: Allocate available excess PV energy to demanders in priority order until either supply runs out or all demand is met
+4. **Stage 2 — Battery shareable**: For any remaining unmet deficits, tap eligible households' battery shareable energy (subject to SoC threshold and daily cap) and allocate in priority order
+5. **Any unmet deficit** falls through to the grid
 
 ---
 
@@ -57,7 +67,7 @@ For each hour of the simulation, every household follows this priority order:
   1. The household has no energy deficit itself
   2. Battery SoC % ≥ the household's assigned **Battery Share %** (e.g., 5 Rupee with 45% needs SoC ≥ 45%)
   3. Battery SoC is above the 20% minimum floor
-- ⚖️ **Equal distribution**: The algorithm manages equal distribution of excess energy from households while respecting each homeowner's % of shareable energy.
+- 🎯 **Priority-based distribution**: Demand households are ranked by highest energy need first. Available P2P energy is allocated in that order — PV excess in Stage 1, then battery shareable energy in Stage 2 — instead of being split proportionally.
 
 ### 📅 Daily Sharing Cap
 - The shareable energy % metric is **only applicable for 1 day**.
@@ -67,7 +77,7 @@ For each hour of the simulation, every household follows this priority order:
 ### 📥 Receiving Energy (Deficit Households)
 - The algorithm uses assigned sharing allocation % to set the amount of allowable % to get from each household per day.
 - 🚫 P2P sharing does **not** fully charge other household's batteries — it only provides enough to support their electricity demands until their demand is less than their PV + battery generation.
-- ✅ The house in need gets its required energy needs from the P2P pool proportionally.
+- ✅ The house with the **largest deficit** is served first; remaining demanders are served in descending priority order until the P2P pool is exhausted.
 
 ---
 
