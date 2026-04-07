@@ -52,10 +52,10 @@ For each hour of the simulation, every household follows this priority order:
 ## 🤝 P2P Sharing Rules
 
 ### 📤 Supplying Energy (Surplus Households)
-- ☀️ **Excess PV sharing**: When a household generates more PV than it needs and its battery is full, it offers a percentage of the excess to the P2P pool based on its assigned sharing %.
-- 🔋 **Battery sharing**: The algorithm monitors each household's total battery % to determine if the house can share excess to others. Eligibility requires:
+- ☀️ **Excess PV sharing**: When a household generates more PV than it needs and its battery is full, it offers a percentage of the excess to the P2P pool based on its assigned **Sharing % (Excess PV)** — independent from the battery sharing %.
+- 🔋 **Battery sharing**: The algorithm monitors each household's total battery % to determine if the house can share stored energy with others. Eligibility requires:
   1. The household has no energy deficit itself
-  2. Battery SoC % ≥ the household's assigned battery sharing % (e.g., 5 Rupee with 45% sharing needs SoC ≥ 45%)
+  2. Battery SoC % ≥ the household's assigned **Battery Share %** (e.g., 5 Rupee with 45% needs SoC ≥ 45%)
   3. Battery SoC is above the 20% minimum floor
 - ⚖️ **Equal distribution**: The algorithm manages equal distribution of excess energy from households while respecting each homeowner's % of shareable energy.
 
@@ -134,7 +134,8 @@ Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari
   - 🔋 **Battery Units** — Number of battery units (default 1.45 kWh each)
   - ⚡ **Inverter Capacity (kW)** — Maximum AC output capacity of the inverter
   - 📊 **WPS Score** — Willingness Participation Score (determines sharer type)
-  - 🤝 **Battery Sharing %** — Unified sharing limit for excess PV and battery energy (also sets daily cap and SoC eligibility threshold)
+  - ☀️ **Sharing % (Excess PV)** — Percentage of excess PV (after battery charging) offered to the P2P pool
+  - 🔋 **Battery Share %** — Battery sharing limit (sets daily cap and SoC eligibility threshold for battery-sourced P2P energy)
   - 🎲 **Demand Variation** — Per-household high/low demand probability and multiplier
 
 ### ▶️ Step 5: Simulate Tab — Run the Simulation
@@ -182,14 +183,16 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
-| Household | WPS | Sharing Level | Sharing % | PV (kW) | Inverter (kW) |
-|-----------|-----|---------------|-----------|---------|---------------|
-| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 3 | 3 |
-| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 3 | 3 |
-| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 4 | 4 |
-| 🏠 33 Guilder | 3.407 | 🟢 Active Sharer | 70% | 10 | 10 |
-| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 5 | 5 |
-| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 5 | 5 |
+| Household | WPS | Sharing Level | PV Share % | Batt Share % | PV (kW) | Inverter (kW) |
+|-----------|-----|---------------|-----------|--------------|---------|---------------|
+| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 45% | 3 | 3 |
+| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 45% | 3 | 3 |
+| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 60% | 4 | 4 |
+| 🏠 33 Guilder | 3.407 | 🟢 Active Sharer | 70% | 70% | 10 | 10 |
+| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 35% | 5 | 5 |
+| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10% | 5 | 5 |
+
+> 💡 **Sharing % (Excess PV)** and **Battery Share %** are independent. Defaults match per household, but you can raise the PV share (e.g. up to 100%) to maximize P2P sharing without changing battery behavior.
 
 ---
 
