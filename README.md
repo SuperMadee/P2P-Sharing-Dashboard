@@ -136,7 +136,7 @@ Just open **`dashboard.html`** in any web browser (Chrome, Firefox, Edge, Safari
   - ☀️ **Solar PV** — Capacity per panel (0.3 kW standard), capital (₱/panel), replacement (₱/panel), O&M (₱/panel/yr), component lifetime (yrs)
   - 🔋 **Battery** — Unit capacity (1.45 kWh), capital (₱/unit), replacement (₱/unit), O&M (₱/unit/yr), component lifetime (yrs)
   - ⚡ **Inverter** — Rated capacity (kW), efficiency (%), capital (₱/unit), replacement (₱/unit), O&M (₱/unit/yr), component lifetime (yrs)
-- **Global Parameters**: Grid buy price, P2P trade price, export price, project lifetime, discount rate
+- **Global Parameters**: Grid buy price, P2P trade price, export price, project lifetime, **nominal discount rate**, **inflation rate** (used to compute the real discount rate via the Fisher equation)
 
 ### 🏠 Step 4: Households Tab — Configure Households
 - **Household Cards** 🏠: Each household can be configured with:
@@ -153,12 +153,12 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 ### 📊 Step 6: Reports Tab — Analyze Results
 - **Summary Cards**: Total P2P energy shared, average LCOE, grid purchases, self-sufficiency
-- **Detailed Results Table**: Per-household CAPEX, 4 LCOE variants, energy flows, self-sufficiency
+- **Detailed Results Table**: Per-household CAPEX, PW Salvage, 2 demand-based LCOE variants, energy flows, self-sufficiency
 - **Charts** 📈 (5 views):
   - 📊 **Energy Breakdown** — Stacked bar showing where each household's energy came from (PV, battery, P2P, grid)
   - 📅 **Monthly Trends** — Line chart of demand, generation, grid use, and P2P trading across the year
   - 🕐 **Daily Profile** — Average hourly energy profile for any household and any month
-  - 💰 **LCOE Comparison** — 4 LCOE variants side-by-side per household
+  - 💰 **LCOE Comparison** — Demand-based LCOE with vs. without P2P for each household
   - 🔗 **P2P Network** — How much each household gave vs. received in the network
 
 ### 🎯 Step 7: Optimizer Tab — Find the Best Setup
@@ -174,8 +174,12 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 | ⚡ **kW (kilowatt)** | A measure of power — the "size" of a solar panel system |
 | 🔌 **kWh (kilowatt-hour)** | A measure of energy — what you actually consume or produce over time |
 | 🔋 **Battery SoC** | State of Charge — how full the battery is (0–100%). Minimum floor: 20% |
-| 💰 **LCOE** | Levelized Cost of Energy — the total cost per kWh over the system's lifetime, including equipment, maintenance, and grid purchases |
+| 💰 **LCOE** | Levelized Cost of Energy — the total cost per kWh over the system's lifetime, including equipment, maintenance, salvage credit, and grid purchases |
 | 💵 **CAPEX** | Capital Expenditure — total upfront cost of PV + Battery + Inverter |
+| 💸 **PW Salvage** | Present Worth of leftover equipment value at the end of the project lifetime — credited back in the LCOE numerator |
+| 📈 **Nominal Discount Rate (r)** | The market discount rate before adjusting for inflation |
+| 📊 **Inflation Rate (f)** | Annual price inflation; combined with the nominal rate to derive the real discount rate |
+| 🧮 **Real Discount Rate (r')** | Inflation-adjusted discount rate via Fisher: r' = (1+r)/(1+f) − 1. Used in CRF, PW_replacement, and PW_salvage |
 | 🏠 **Self-Sufficiency** | Percentage of demand met without buying from the grid |
 | 🤝 **P2P Sharing** | Households selling/buying excess solar energy directly to/from each other |
 | 🌤️ **GHI** | Global Horizontal Irradiance — how much solar energy hits a flat surface (kWh/m²/day) |
@@ -227,40 +231,69 @@ Where:
 
 ## 💰 LCOE Calculation
 
-The dashboard computes **4 LCOE variants** for comparison:
+The dashboard computes **2 demand-based LCOE variants** (with and without P2P), using the **real discount rate** and crediting back salvage value at end of project life.
 
 | LCOE Variant | Grid Cost (C_grid) | Denominator |
 |---|---|---|
-| **Demand-based w/ P2P** | E_demand − E_PV,direct − E_battery − E_P2P_received | E_demand |
-| **Demand-based w/o P2P** | E_demand − E_PV,direct − E_battery | E_demand |
-| **Generation-based w/ P2P** | E_demand − E_PV,direct − E_battery − E_P2P_received | E_PV,direct + E_battery + E_P2P_received |
-| **Generation-based w/o P2P** | E_demand − E_PV,direct − E_battery | E_PV,direct + E_battery |
+| **Demand-based w/ P2P** | (E_demand − E_PV,direct − E_battery − E_P2P_received) × P_grid | E_demand |
+| **Demand-based w/o P2P** | (E_demand − E_PV,direct − E_battery) × P_grid | E_demand |
 
 ```
-LCOE = ((ΣCapital + PW_replacement) × CRF + ΣO&M + C_grid) / Denominator
+LCOE = ((ΣCapital + PW_replacement − PW_salvage) × CRF + ΣAnnual O&M + C_grid) / E_demand
 
-ΣCapital Costs:
+────────────────────────────────────────────────────────────
+Real Discount Rate (Fisher equation)
+────────────────────────────────────────────────────────────
+  r' = (1 + r) / (1 + f) − 1
+
+  r  = nominal discount rate (Global Parameters)
+  f  = inflation rate         (Global Parameters)
+
+  r' is used in CRF, PW_replacement, and PW_salvage.
+
+────────────────────────────────────────────────────────────
+Capital Recovery Factor (uses r')
+────────────────────────────────────────────────────────────
+  CRF = r'(1 + r')^N / ((1 + r')^N − 1)
+
+  N = project lifetime (years)
+
+────────────────────────────────────────────────────────────
+ΣCapital Costs
+────────────────────────────────────────────────────────────
   C_PV       = No. of Panels × Capital per Panel
   C_Batt     = No. of Battery Units × Capital per Unit
   C_Inverter = (Household Inv kW / Rated Inv kW) × Capital per Unit
 
   No. of Panels = PV Capacity (kW) / Capacity per Panel (0.3 kW standard)
-
   CAPEX = C_PV + C_Batt + C_Inverter
 
-PW_replacement (Present Worth of future replacements):
+────────────────────────────────────────────────────────────
+PW_replacement (Present Worth of future replacements, uses r')
+────────────────────────────────────────────────────────────
   For each component j (PV, battery, inverter):
-    PW_j = Σ(k=1 to m_j) C_replacement,j / (1+r)^(k × L_j)
+    PW_repl,j = Σ(k=1 to m_j) C_repl,j / (1 + r')^(k × L_j)
 
-  L_j = component lifetime (years), set in Hardware tab
-  m_j = ceil(N / L_j) - 1 = number of replacements during project
-  r = discount rate, N = project lifetime
+  L_j = component lifetime (years)
+  m_j = ceil(N / L_j) − 1 = number of replacements during project
 
-C_grid = E_grid × P_grid (₱/kWh)
+────────────────────────────────────────────────────────────
+PW_salvage (Present Worth of leftover equipment value, uses r')
+────────────────────────────────────────────────────────────
+  Remaining life (per component) =
+       0,                 if N mod L = 0
+       L − (N mod L),     if N mod L ≠ 0
 
-ΣAnnual O&M = (Panels × PV_OM) + (Batt_Units × Batt_OM) + (Inv_ratio × Inv_OM)
+  PW_salvage = Σ_j  C_repl,j × (Remaining life_j / L_j) / (1 + r')^N
 
-CRF = r(1+r)^N / ((1+r)^N − 1)
+  This represents the leftover useful life of each component
+  at the end of the project, discounted to present worth.
+
+────────────────────────────────────────────────────────────
+Other Terms
+────────────────────────────────────────────────────────────
+  ΣAnnual O&M = (Panels × PV_OM) + (Batt × Batt_OM) + (Inv_ratio × Inv_OM)
+  C_grid      = E_grid × P_grid     (₱/kWh)
 ```
 
 ---

@@ -322,6 +322,10 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                 <label>Discount Rate (%)</label>
                 <input type="number" id="cfg-discountRate" value="5" step="0.5" min="0">
             </div>
+            <div class="form-group">
+                <label>Inflation Rate (%)</label>
+                <input type="number" id="cfg-inflationRate" value="3" step="0.5" min="0">
+            </div>
         </div>
     </div>
 </div>
@@ -594,7 +598,8 @@ function getGlobalConfig() {
         p2pPrice: +document.getElementById('cfg-p2pPrice').value,               // P2P energy trading price in ₱/kWh
         exportPrice: +document.getElementById('cfg-exportPrice').value,         // Grid export (feed-in) price in ₱/kWh
         lifetime: +document.getElementById('cfg-lifetime').value,               // Project lifetime in years
-        discountRate: +document.getElementById('cfg-discountRate').value / 100, // Annual discount rate (decimal)
+        discountRate: +document.getElementById('cfg-discountRate').value / 100, // Annual nominal discount rate (decimal)
+        inflationRate: +document.getElementById('cfg-inflationRate').value / 100, // Annual inflation rate (decimal)
         // Fixed battery parameters
         chargeEff: 0.922,     // Battery charging efficiency: sqrt(0.85) ≈ 92.2%
         dischargeEff: 0.922,  // Battery discharging efficiency: sqrt(0.85) ≈ 92.2%
@@ -913,16 +918,19 @@ function simulate(hhConfigs, cfg, progressCb) {
     });
 
     // ===== POST-SIMULATION: Calculate LCOE =====
-    // LCOE = Levelized Cost of Energy = Total annual cost / Total annual energy consumed
-    // This gives the effective cost per kWh including all capital, operating, and energy costs
-    const r = cfg.discountRate;                                            // Discount rate (e.g., 0.05 for 5%)
-    const n = cfg.lifetime;                                                // System lifetime in years (e.g., 25)
-    // Capital Recovery Factor (CRF): converts one-time capital cost into equivalent annual payments
-    // Formula: CRF = r(1+r)^n / ((1+r)^n - 1)
-    const crf = r > 0 ? r * Math.pow(1+r, n) / (Math.pow(1+r, n) - 1) : 1/n; // If discount rate is 0, simply divide by lifetime
+    // LCOE = Levelized Cost of Energy = Total annual cost / Total annual energy demanded
+    // Uses the REAL discount rate (Fisher equation): r' = (1+r)/(1+f) - 1
+    // where r = nominal discount rate, f = inflation rate
+    const rNom = cfg.discountRate;                                         // Nominal discount rate (e.g., 0.05 for 5%)
+    const f = cfg.inflationRate;                                           // Inflation rate (e.g., 0.03 for 3%)
+    const rReal = (1 + rNom) / (1 + f) - 1;                                // Real discount rate via Fisher equation
+    const n = cfg.lifetime;                                                // Project lifetime in years (e.g., 25)
+    // Capital Recovery Factor (CRF) using REAL discount rate
+    // Formula: CRF = r'(1+r')^N / ((1+r')^N - 1)
+    const crf = rReal > 0 ? rReal * Math.pow(1+rReal, n) / (Math.pow(1+rReal, n) - 1) : 1/n; // If real rate is 0, simply divide by lifetime
 
-    // Helper: compute Present Worth of replacements for a component
-    // PW = Σ(k=1 to m) C_repl / (1+r)^(k × L)
+    // Helper: compute Present Worth of replacements for a component (uses real discount rate)
+    // PW = Σ(k=1 to m) C_repl / (1+r')^(k × L)
     // where m = ceil(N/L) - 1 = number of replacements during project lifetime
     function pwReplacement(replCostPerEvent, compLifetime, projLifetime, discRate) {
         if (compLifetime <= 0 || compLifetime >= projLifetime) return 0;   // No replacement needed if component outlasts project
@@ -932,6 +940,18 @@ function simulate(hhConfigs, cfg, progressCb) {
             pw += replCostPerEvent / Math.pow(1 + discRate, k * compLifetime); // Discount each replacement to present value
         }
         return pw;
+    }
+
+    // Helper: compute Present Worth of salvage value for a component at end of project
+    // Remaining life = 0 if N mod L == 0, else L - (N mod L)
+    // PW_salvage_component = C_repl × (RemainingLife / L) / (1 + r')^N
+    function pwSalvage(replCostPerEvent, compLifetime, projLifetime, discRate) {
+        if (compLifetime <= 0) return 0;                                   // No salvage if no lifetime defined
+        const remainder = projLifetime % compLifetime;                     // N mod L
+        const remainingLife = remainder === 0 ? 0 : compLifetime - remainder; // Remaining useful life at end of project
+        if (remainingLife === 0) return 0;                                 // No leftover life → no salvage value
+        const salvageAtEnd = replCostPerEvent * (remainingLife / compLifetime); // Linear-depreciation salvage value
+        return salvageAtEnd / Math.pow(1 + discRate, projLifetime);        // Discount back to present worth
     }
 
     res.forEach((r_item, i) => {                                           // For each household
@@ -946,20 +966,27 @@ function simulate(hhConfigs, cfg, progressCb) {
         const invCapCost = (hhInvCap / cfg.inverterRatedCap) * cfg.inverterCost; // C_Inv = (HH kW / rated kW) × cost per unit
         const totalCapital = pvCapCost + battCapCost + invCapCost;
 
-        // PW_replacement: present worth of all future replacements
+        // Per-event replacement cost for each component
         const pvReplPerEvent = numPanels * cfg.pvReplaceCost;              // Total PV replacement cost per event
         const battReplPerEvent = numBatt * cfg.battReplaceCost;            // Total battery replacement cost per event
         const invReplPerEvent = (hhInvCap / cfg.inverterRatedCap) * cfg.inverterReplaceCost; // Inverter replacement cost per event
-        const pwRepl = pwReplacement(pvReplPerEvent, cfg.pvLifetime, n, r)
-                     + pwReplacement(battReplPerEvent, cfg.battLifetime, n, r)
-                     + pwReplacement(invReplPerEvent, cfg.inverterLifetime, n, r);
+
+        // PW_replacement: present worth of all future replacements (using real discount rate)
+        const pwRepl = pwReplacement(pvReplPerEvent, cfg.pvLifetime, n, rReal)
+                     + pwReplacement(battReplPerEvent, cfg.battLifetime, n, rReal)
+                     + pwReplacement(invReplPerEvent, cfg.inverterLifetime, n, rReal);
+
+        // PW_salvage: present worth of salvage value at end of project (using real discount rate)
+        const pwSalv = pwSalvage(pvReplPerEvent, cfg.pvLifetime, n, rReal)
+                     + pwSalvage(battReplPerEvent, cfg.battLifetime, n, rReal)
+                     + pwSalvage(invReplPerEvent, cfg.inverterLifetime, n, rReal);
 
         // ΣAnnual O&M costs (₱/unit/yr × number of units)
         const annualOM = (numPanels * cfg.pvOM) + (numBatt * cfg.battOM)
                        + ((hhInvCap / cfg.inverterRatedCap) * cfg.inverterOM);
 
-        // Base annualized cost (capital + O&M, excluding grid)
-        const annualBase = (totalCapital + pwRepl) * crf + annualOM;
+        // Base annualized cost: (Capital + PW_repl - PW_salvage) × CRF + Annual O&M
+        const annualBase = (totalCapital + pwRepl - pwSalv) * crf + annualOM;
 
         // Grid energy calculations
         // With P2P: E_grid = E_demand - E_PV,direct - E_battery - E_P2P_received (already computed as gridPurchased)
@@ -969,21 +996,16 @@ function simulate(hhConfigs, cfg, progressCb) {
         const eGridNoP2P = Math.max(0, r_item.totalDemand - r_item.pvDirect - r_item.batteryUsed);
         const cGridNoP2P = eGridNoP2P * cfg.gridPrice;
 
-        // Generation-based denominators
-        const genDenomP2P = r_item.pvDirect + r_item.batteryUsed + r_item.p2pReceived;   // System output with P2P
-        const genDenomNoP2P = r_item.pvDirect + r_item.batteryUsed;                       // System output without P2P
-
-        // 4 LCOE variants
+        // 2 LCOE variants (demand-based only)
         r_item.lcoeDemandP2P = r_item.totalDemand > 0 ? (annualBase + cGridP2P) / r_item.totalDemand : 0;
         r_item.lcoeDemandNoP2P = r_item.totalDemand > 0 ? (annualBase + cGridNoP2P) / r_item.totalDemand : 0;
-        r_item.lcoeGenP2P = genDenomP2P > 0 ? (annualBase + cGridP2P) / genDenomP2P : 0;
-        r_item.lcoeGenNoP2P = genDenomNoP2P > 0 ? (annualBase + cGridNoP2P) / genDenomNoP2P : 0;
 
         // Keep legacy fields for compatibility
         r_item.lcoe = r_item.lcoeDemandP2P;
         r_item.annualCost = annualBase + cGridP2P;
         r_item.capex = totalCapital;
         r_item.capitalCost = totalCapital;
+        r_item.pwSalvage = pwSalv;
         r_item.selfSufficiency = r_item.totalDemand > 0 ? (1 - r_item.gridPurchased / r_item.totalDemand) * 100 : 0;
     });
 
@@ -1080,11 +1102,10 @@ function renderReports() {
     const tbl = document.getElementById('results-table');                   // Reference to results table element
     tbl.innerHTML = `<thead><tr>
         <th>Household</th><th>PV (kW)</th><th>Inv (kW)</th><th>Batt (kWh)</th>
-        <th>CAPEX (₱)</th>
+        <th>CAPEX (₱)</th><th>PW Salvage (₱)</th>
         <th>Demand</th><th>PV Direct</th><th>Battery</th><th>P2P Recv</th><th>Grid Buy</th>
         <th>Self-Suff %</th>
         <th>LCOE Demand w/ P2P</th><th>LCOE Demand w/o P2P</th>
-        <th>LCOE Gen w/ P2P</th><th>LCOE Gen w/o P2P</th>
         <th>Annual Cost (₱)</th>
     </tr></thead><tbody>` + simResults.households.map((r, i) => `<tr>
         <td><span class="color-dot" style="background:${r.color}"></span>${r.name}</td>
@@ -1092,11 +1113,11 @@ function renderReports() {
         <td>${households[i].inverterCap}</td>
         <td>${(households[i].battCount * simResults.cfg.battCapPerUnit).toFixed(2)}</td>
         <td>${r.capex.toFixed(0)}</td>
+        <td>${r.pwSalvage.toFixed(0)}</td>
         <td>${r.totalDemand.toFixed(0)}</td><td>${r.pvDirect.toFixed(0)}</td><td>${r.batteryUsed.toFixed(0)}</td>
         <td>${r.p2pReceived.toFixed(0)}</td><td>${r.gridPurchased.toFixed(0)}</td>
         <td>${r.selfSufficiency.toFixed(1)}</td>
         <td>${r.lcoeDemandP2P.toFixed(4)}</td><td>${r.lcoeDemandNoP2P.toFixed(4)}</td>
-        <td>${r.lcoeGenP2P.toFixed(4)}</td><td>${r.lcoeGenNoP2P.toFixed(4)}</td>
         <td>${r.annualCost.toFixed(0)}</td>
     </tr>`).join('') + '</tbody>';
 
@@ -1209,14 +1230,12 @@ function renderChart(type) {
                     labels: names,
                     datasets: [
                         { label: 'Demand w/ P2P', data: hhs.map(h => +h.lcoeDemandP2P.toFixed(4)), backgroundColor: '#3b82f6', borderWidth: 0 },
-                        { label: 'Demand w/o P2P', data: hhs.map(h => +h.lcoeDemandNoP2P.toFixed(4)), backgroundColor: '#93c5fd', borderWidth: 0 },
-                        { label: 'Gen w/ P2P', data: hhs.map(h => +h.lcoeGenP2P.toFixed(4)), backgroundColor: '#22c55e', borderWidth: 0 },
-                        { label: 'Gen w/o P2P', data: hhs.map(h => +h.lcoeGenNoP2P.toFixed(4)), backgroundColor: '#86efac', borderWidth: 0 }
+                        { label: 'Demand w/o P2P', data: hhs.map(h => +h.lcoeDemandNoP2P.toFixed(4)), backgroundColor: '#93c5fd', borderWidth: 0 }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { title: { display: true, text: '4 LCOE Comparison (₱/kWh)' } },
+                    plugins: { title: { display: true, text: 'LCOE Comparison (₱/kWh)' } },
                     scales: { y: { title: { display: true, text: '₱/kWh' }, beginAtZero: true } }
                 }
             };
