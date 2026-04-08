@@ -155,7 +155,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 - **Summary Cards**: Total P2P energy shared, average LCOE, grid purchases, self-sufficiency
 - **Detailed Results Table**: Per-household CAPEX, PW Salvage, 2 demand-based LCOE variants, energy flows, self-sufficiency
 - **Charts** 📈 (5 views):
-  - 📊 **Energy Breakdown** — Stacked bar showing where each household's energy came from (PV, battery, P2P, grid)
+  - 📊 **Energy Breakdown** — Grouped bar with 4 side-by-side bars per household (PV, battery, P2P, grid)
   - 📅 **Monthly Trends** — Line chart of demand, generation, grid use, and P2P trading across the year
   - 🕐 **Daily Profile** — Average hourly energy profile for any household and any month
   - 💰 **LCOE Comparison** — Demand-based LCOE with vs. without P2P for each household

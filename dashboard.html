@@ -365,7 +365,7 @@ tr:hover td { background: #f8fafc; }                               /* Light high
         <div class="card" style="margin-bottom:24px">
             <!-- Chart type selector tabs -->
             <div class="chart-tabs" id="chart-tabs">
-                <div class="chart-tab active" data-chart="energy">Energy Breakdown</div>  <!-- Stacked bar: PV vs Battery vs P2P vs Grid per household -->
+                <div class="chart-tab active" data-chart="energy">Energy Breakdown</div>  <!-- Grouped bar: PV vs Battery vs P2P vs Grid side-by-side per household -->
                 <div class="chart-tab" data-chart="monthly">Monthly Trends</div>          <!-- Line chart: monthly energy flows across the year -->
                 <div class="chart-tab" data-chart="daily">Daily Profile</div>              <!-- Line chart: average 24-hour energy profile -->
                 <div class="chart-tab" data-chart="lcoe">LCOE Comparison</div>             <!-- Bar chart: LCOE for each household -->
@@ -1148,7 +1148,7 @@ function renderChart(type) {
     let config;                                                            // Chart.js configuration object
     switch(type) {
         // ===== Energy Breakdown Chart =====
-        // Stacked bar chart showing where each household's energy came from
+        // Grouped bar chart: 4 side-by-side bars per household (PV, Battery, P2P, Grid)
         case 'energy': {
             config = {
                 type: 'bar',                                               // Bar chart type
@@ -1157,14 +1157,14 @@ function renderChart(type) {
                     datasets: [
                         { label: 'PV Direct', data: hhs.map(h => +h.pvDirect.toFixed(1)), backgroundColor: '#22c55e' },      // Green: solar energy used directly
                         { label: 'Battery', data: hhs.map(h => +h.batteryUsed.toFixed(1)), backgroundColor: '#3b82f6' },     // Blue: energy from battery
-                        { label: 'P2P Received', data: hhs.map(h => +h.p2pReceived.toFixed(1)), backgroundColor: '#f59e0b' }, // Amber: energy received from P2P network
+                        { label: 'P2P Received', data: hhs.map(h => +h.p2pReceived.toFixed(1)), backgroundColor: '#facc15' }, // Yellow: energy received from P2P network
                         { label: 'Grid', data: hhs.map(h => +h.gridPurchased.toFixed(1)), backgroundColor: '#ef4444' }       // Red: energy bought from grid
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,           // Fill container, don't maintain fixed aspect ratio
                     plugins: { title: { display: true, text: 'Annual Energy Source Breakdown (kWh)' } }, // Chart title
-                    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: 'kWh' } } } // Stacked bars with kWh y-axis
+                    scales: { x: { stacked: false }, y: { stacked: false, beginAtZero: true, title: { display: true, text: 'kWh' } } } // Grouped (side-by-side) bars
                 }
             };
             break;
