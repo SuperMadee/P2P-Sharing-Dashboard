@@ -223,15 +223,15 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                 </div>
                 <div class="form-group">
                     <label>Capital Cost (₱/panel)</label>
-                    <input type="number" id="cfg-pvCost" value="1000" step="50" min="0">
+                    <input type="number" id="cfg-pvCost" value="9500" step="50" min="0">
                 </div>
                 <div class="form-group">
                     <label>Replacement Cost (₱/panel)</label>
-                    <input type="number" id="cfg-pvReplaceCost" value="200" step="10" min="0">
+                    <input type="number" id="cfg-pvReplaceCost" value="8000" step="10" min="0">
                 </div>
                 <div class="form-group">
                     <label>O&M Cost (₱/panel/yr)</label>
-                    <input type="number" id="cfg-pvOM" value="10" step="1" min="0">
+                    <input type="number" id="cfg-pvOM" value="100" step="1" min="0">
                 </div>
                 <div class="form-group">
                     <label>Component Lifetime (yrs)</label>
@@ -246,19 +246,19 @@ tr:hover td { background: #f8fafc; }                               /* Light high
             <div class="grid-4">
                 <div class="form-group">
                     <label>Unit Capacity (kWh)</label>
-                    <input type="number" id="cfg-battCap" value="1.45" step="0.01" min="0.01">
+                    <input type="number" id="cfg-battCap" value="3.28" step="0.01" min="0.01">
                 </div>
                 <div class="form-group">
                     <label>Capital Cost (₱/unit)</label>
-                    <input type="number" id="cfg-battCost" value="300" step="10" min="0">
+                    <input type="number" id="cfg-battCost" value="135500" step="10" min="0">
                 </div>
                 <div class="form-group">
                     <label>Replacement Cost (₱/unit)</label>
-                    <input type="number" id="cfg-battReplaceCost" value="200" step="10" min="0">
+                    <input type="number" id="cfg-battReplaceCost" value="120000" step="10" min="0">
                 </div>
                 <div class="form-group">
                     <label>O&M Cost (₱/unit/yr)</label>
-                    <input type="number" id="cfg-battOM" value="5" step="1" min="0">
+                    <input type="number" id="cfg-battOM" value="800" step="1" min="0">
                 </div>
                 <div class="form-group">
                     <label>Component Lifetime (yrs)</label>
@@ -273,27 +273,27 @@ tr:hover td { background: #f8fafc; }                               /* Light high
             <div class="grid-4">
                 <div class="form-group">
                     <label>Rated Capacity (kW)</label>
-                    <input type="number" id="cfg-inverterRatedCap" value="8.2" step="0.1" min="0.1">
+                    <input type="number" id="cfg-inverterRatedCap" value="3" step="0.1" min="0.1">
                 </div>
                 <div class="form-group">
                     <label>Inverter Efficiency (%)</label>
-                    <input type="number" id="cfg-inverterEff" value="96" step="0.5" min="50" max="100">
+                    <input type="number" id="cfg-inverterEff" value="95" step="0.5" min="50" max="100">
                 </div>
                 <div class="form-group">
                     <label>Capital Cost (₱/unit)</label>
-                    <input type="number" id="cfg-inverterCost" value="100000" step="1000" min="0">
+                    <input type="number" id="cfg-inverterCost" value="70000" step="1000" min="0">
                 </div>
                 <div class="form-group">
                     <label>Replacement Cost (₱/unit)</label>
-                    <input type="number" id="cfg-inverterReplaceCost" value="100000" step="1000" min="0">
+                    <input type="number" id="cfg-inverterReplaceCost" value="55000" step="1000" min="0">
                 </div>
                 <div class="form-group">
                     <label>O&M Cost (₱/unit/yr)</label>
-                    <input type="number" id="cfg-inverterOM" value="5" step="1" min="0">
+                    <input type="number" id="cfg-inverterOM" value="1000" step="1" min="0">
                 </div>
                 <div class="form-group">
                     <label>Component Lifetime (yrs)</label>
-                    <input type="number" id="cfg-inverterLifetime" value="15" step="1" min="1">
+                    <input type="number" id="cfg-inverterLifetime" value="10" step="1" min="1">
                 </div>
             </div>
         </div>
@@ -304,15 +304,15 @@ tr:hover td { background: #f8fafc; }                               /* Light high
         <div class="grid-4">
             <div class="form-group">
                 <label>Grid Buy Price (₱/kWh)</label>
-                <input type="number" id="cfg-gridPrice" value="0.15" step="0.01" min="0">
+                <input type="number" id="cfg-gridPrice" value="13.8" step="0.01" min="0">
             </div>
             <div class="form-group">
                 <label>P2P Trade Price (₱/kWh)</label>
-                <input type="number" id="cfg-p2pPrice" value="0.10" step="0.01" min="0">
+                <input type="number" id="cfg-p2pPrice" value="0" step="0.01" min="0">
             </div>
             <div class="form-group">
                 <label>Grid Sell/Export Price (₱/kWh)</label>
-                <input type="number" id="cfg-exportPrice" value="0.04" step="0.01" min="0">
+                <input type="number" id="cfg-exportPrice" value="0" step="0.01" min="0">
             </div>
             <div class="form-group">
                 <label>Project Lifetime (years)</label>
@@ -491,12 +491,12 @@ const LOAD = [
 // These defaults can be modified by the user in the Setup tab
 // =====================================================================
 const DEFAULT_HH = [
-    { name:'5 Rupee',    pv:3,  battCount:1, inverterCap:3,  ws:3.127, pvSharePct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'7 Rial',     pv:3,  battCount:1, inverterCap:3,  ws:3.167, pvSharePct:0.45, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'19 Baht',    pv:4,  battCount:1, inverterCap:4,  ws:2.683, pvSharePct:0.60, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'33 Guilder', pv:10, battCount:3, inverterCap:10, ws:3.407, pvSharePct:0.70, battSharePct:0.70, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'38 Rand',    pv:5,  battCount:2, inverterCap:5,  ws:2.927, pvSharePct:0.35, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
-    { name:'40 Guilder', pv:5,  battCount:2, inverterCap:5,  ws:2.077, pvSharePct:0.10, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
+    { name:'House 1',    pv:2.5,  battCount:1, inverterCap:3,  ws:3.127, pvSharePct:0, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'House 2',     pv:2.5,  battCount:1, inverterCap:3,  ws:3.167, pvSharePct:0, battSharePct:0.45, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'House 3',    pv:3,    battCount:1, inverterCap:3,  ws:2.683, pvSharePct:0, battSharePct:0.60, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'House 4', pv:3.5,  battCount:1, inverterCap:3, ws:3.407,  pvSharePct:0, battSharePct:0.70, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'House 5',    pv:3.5,  battCount:1, inverterCap:3,  ws:2.927, pvSharePct:0, battSharePct:0.35, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 },
+    { name:'House 6', pv:3.5,  battCount:1, inverterCap:3,  ws:2.077, pvSharePct:0, battSharePct:0.10, highProb:0.20, highMult:1.4, lowProb:0.20, lowMult:0.6 }
 ];
 
 // Deep copy of defaults into working array (so defaults are preserved if user resets)
@@ -912,10 +912,12 @@ function simulate(hhConfigs, cfg, progressCb) {
                 h.pvGen /= h.count;                                        // Average hourly PV generation
                 h.pvDirect /= h.count;                                     // Average hourly PV direct use
                 h.battUsed /= h.count;                                     // Average hourly battery discharge
+                h.p2pIn /= h.count;                                        // Average hourly p2p received
                 h.gridIn /= h.count;                                       // Average hourly grid purchase
             }
         });
     });
+
 
     // ===== POST-SIMULATION: Calculate LCOE =====
     // LCOE = Levelized Cost of Energy = Total annual cost / Total annual energy demanded
