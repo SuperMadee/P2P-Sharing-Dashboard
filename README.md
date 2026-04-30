@@ -197,16 +197,16 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 
 Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
-| Household | WPS | Sharing Level | PV Share % | Batt Share % | PV (kW) | Inverter (kW) |
+| Household | WPS | Sharing Level | Batt Share % | PV (kW) | Inverter (kW) |
 |-----------|-----|---------------|-----------|--------------|---------|---------------|
-| 🏠 5 Rupee | 3.127 | 🟢 Active Sharer | 45% | 45% | 3 | 3 |
-| 🏠 7 Rial | 3.167 | 🟢 Active Sharer | 45% | 45% | 3 | 3 |
-| 🏠 19 Baht | 2.683 | 🟡 Moderate Sharer | 60% | 60% | 4 | 4 |
-| 🏠 33 Guilder | 3.407 | 🟢 Active Sharer | 70% | 70% | 10 | 10 |
-| 🏠 38 Rand | 2.927 | 🟡 Moderate Sharer | 35% | 35% | 5 | 5 |
-| 🏠 40 Guilder | 2.077 | 🔴 Conservative Sharer | 10% | 10% | 5 | 5 |
+| 🏠 House 1 | 3.8 | 🟢 Active Sharer | 75% | 2.5 | 3 |
+| 🏠 House 2 | 5.0 | 🟢 Active Sharer | 100% | 2.5 | 3 |
+| 🏠 House 3 | 3.6 | 🟡 Moderate Sharer | 75% | 3.5 | 3 |
+| 🏠 House 4 | 4.6 | 🟢 Active Sharer | 100% | 9.5 | 8 |
+| 🏠 House 5 | 2.8 | 🟡 Moderate Sharer | 50% | 5 | 4 |
+| 🏠 House 6 | 2.4 | 🔴 Conservative Sharer | 25% | 7 | 5.5 |
 
-> 💡 **Sharing % (Excess PV)** and **Battery Share %** are independent. Defaults match per household, but you can raise the PV share (e.g. up to 100%) to maximize P2P sharing without changing battery behavior.
+> 💡 **Battery Share %** is independent. Defaults match per household, but you can raise the Battery Share (e.g. up to 100%) to maximize P2P sharing.
 
 ---
 
