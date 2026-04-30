@@ -198,7 +198,7 @@ Click **"Run Simulation"** to simulate all 8,760 hours. Each household independe
 Each household has a unique load profile (24-hour energy consumption pattern for each month), P2P sharing willingness, and independent demand variation:
 
 | Household | WPS | Sharing Level | Batt Share % | PV (kW) | Inverter (kW) |
-|-----------|-----|---------------|-----------|--------------|---------|---------------|
+|-----------|-----|---------------|--------------|---------|---------------|
 | 🏠 House 1 | 3.8 | 🟢 Active Sharer | 75% | 2.5 | 3 |
 | 🏠 House 2 | 5.0 | 🟢 Active Sharer | 100% | 2.5 | 3 |
 | 🏠 House 3 | 3.6 | 🟡 Moderate Sharer | 75% | 3.5 | 3 |
