@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>P2P Energy Sharing Simulation Dashboard</title>
+<!-- xlsx-js-style: SheetJS fork with full cell-style support (fills, fonts, borders) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- html-docx-js for native .docx export (converts HTML+tables to OOXML) -->
+<script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
 <script>/**
  * Skipped minification because the original files appears to be already minified.
  * Original file: /npm/chart.js@4.4.1/dist/chart.umd.js
@@ -31,34 +35,486 @@
 // =====================================================================
 
 // =====================================================================
-// exportReportsPDF — Opens a new window with all results as tables,
-// then triggers the print/save-as-PDF dialog.
-// Includes: Energy Breakdown, Monthly Trends, Daily Profile (all HH),
-//           LCOE Comparison, P2P Network, and Detailed Results.
+// EXPORT MENU — supports PDF, DOCX, XLSX for both Reports and Detailed
+// Computations. Each table is built once as a structured object
+// (headers, rows, totalRow) and then rendered in the requested format.
+//
+//   PDF  — opens a printable HTML window (browser Save-as-PDF)
+//   DOCX — generates a real .docx file via html-docx-js (preserves
+//          tables when opened in Word / Google Docs / LibreOffice)
+//   XLSX — generates a real .xlsx file via SheetJS (each section
+//          becomes a separate sheet with headers, totals row, and
+//          number formatting so cells can be copied into the thesis)
 // =====================================================================
-function exportReportsPDF() {
-    if (!simResults) { alert('Run a simulation first.'); return; }
-    const btn = document.getElementById('btn-export-pdf');
-    btn.disabled = true;
-    btn.textContent = 'Building…';
 
+// Toggle the dropdown next to the export button
+function toggleExportMenu(scope) {
+    const menu = document.getElementById(`export-menu-${scope}`);
+    if (!menu) return;
+    const open = menu.style.display !== 'none';
+    // Close any other open menu first
+    document.querySelectorAll('.export-dropdown').forEach(d => d.style.display = 'none');
+    menu.style.display = open ? 'none' : 'block';
+}
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+    if (e.target.closest('.export-menu')) return;
+    document.querySelectorAll('.export-dropdown').forEach(d => d.style.display = 'none');
+});
+
+// ─── Shared formatters ──────────────────────────────────────────────
+const _expFmt  = v => parseFloat((+v||0).toFixed(2)).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
+const _expFmtD = v => (+v||0).toFixed(4);
+const _expFmtP = v => (+v||0).toFixed(1);
+const _expF2   = v => parseFloat((+v||0).toFixed(2)).toLocaleString('en-PH', {maximumFractionDigits:2});
+const _expRaw2 = v => +parseFloat((+v||0).toFixed(2));
+const _expRaw4 = v => +parseFloat((+v||0).toFixed(4));
+
+// ─── Build all Reports tab data as structured tables ────────────────
+// Returns: { sections: [{title, description?, columns, rows, totalRow?, numericCols?}] }
+//   numericCols: indexes of columns that should be plain numbers (for XLSX)
+function _buildReportsData() {
+    if (!simResults) return null;
     const hhs   = simResults.households;
-    const fmt   = v => parseFloat(v.toFixed(2)).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
-    const fmtD  = v => v.toFixed(4);
-    const fmtP  = v => v.toFixed(1);
-    const f2    = v => parseFloat(v.toFixed(2)).toLocaleString('en-PH', {maximumFractionDigits:2});
     const tot   = fn => hhs.reduce((s,h)=>s+fn(h),0);
     const MO    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const HOURS = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+    const sections = [];
 
-    // ── CSS shared by all tables ──────────────────────────────────────────
+    // ── Summary ────────────────────────────────────────────────────
+    sections.push({
+        title: 'Summary',
+        sheetName: 'Summary',
+        columns: ['Metric', 'Value', 'Unit', 'Notes'],
+        rows: [
+            ['Total P2P Energy Shared', _expRaw2(simResults.totalP2PShared), 'kWh', 'Across all households for the simulated year'],
+            ['Average LCOE',            _expRaw4(simResults.avgLCOE),         '₱/kWh', 'Mean LCOE w/ P2P across all households'],
+            ['Total Grid Purchased',    _expRaw2(simResults.totalGrid),       'kWh', 'Total energy bought from utility grid'],
+            ['Average Self-Sufficiency',_expRaw2(simResults.avgSelfSuff),     '%',   'Energy from PV + battery + P2P']
+        ],
+        numericCols: [1]
+    });
+
+    // ── 1. Energy Breakdown ────────────────────────────────────────
+    sections.push({
+        title: '1. Energy Breakdown',
+        sheetName: 'Energy Breakdown',
+        columns: ['Household','PV Direct (kWh)','Battery (kWh)','P2P Received (kWh)','Grid (kWh)','Total Demand (kWh)'],
+        rows: hhs.map(h => [h.name,
+            _expRaw2(h.pvDirect), _expRaw2(h.batteryUsed), _expRaw2(h.p2pReceived),
+            _expRaw2(h.gridPurchased),
+            _expRaw2(h.pvDirect + h.batteryUsed + h.p2pReceived + h.gridPurchased)]),
+        totalRow: ['Network Total',
+            _expRaw2(tot(h=>h.pvDirect)), _expRaw2(tot(h=>h.batteryUsed)),
+            _expRaw2(tot(h=>h.p2pReceived)), _expRaw2(tot(h=>h.gridPurchased)),
+            _expRaw2(tot(h=>h.pvDirect+h.batteryUsed+h.p2pReceived+h.gridPurchased))],
+        numericCols: [1,2,3,4,5]
+    });
+
+    // ── 2. Monthly Trends ──────────────────────────────────────────
+    const dem=[],pv=[],grid=[],p2p=[];
+    for(let mi=0;mi<12;mi++){dem[mi]=pv[mi]=grid[mi]=p2p[mi]=0;}
+    hhs.forEach(h=>h.monthly.forEach((m,mi)=>{
+        dem[mi]+=m.demand; pv[mi]+=m.pvGen; grid[mi]+=m.gridIn; p2p[mi]+=m.p2pIn;
+    }));
+    const sum = a => a.reduce((s,v)=>s+v,0);
+    sections.push({
+        title: '2. Monthly Trends',
+        sheetName: 'Monthly Trends',
+        columns: ['Month','Total Demand (kWh)','PV Generation (kWh)','Grid Purchased (kWh)','P2P Traded (kWh)'],
+        rows: MO.map((mn,mi) => [mn, _expRaw2(dem[mi]), _expRaw2(pv[mi]), _expRaw2(grid[mi]), _expRaw2(p2p[mi])]),
+        totalRow: ['Annual Total', _expRaw2(sum(dem)), _expRaw2(sum(pv)), _expRaw2(sum(grid)), _expRaw2(sum(p2p))],
+        numericCols: [1,2,3,4]
+    });
+
+    // ── 3. Daily Profiles — one section per household ──────────────
+    hhs.forEach((h) => {
+        const ha = h.hourlyAvg || Array.from({length:24}, () => ({demand:0,pvGen:0,pvDirect:0,battUsed:0,p2pIn:0,gridIn:0}));
+        const sk = k => ha.reduce((a,d)=>a+(d[k]||0),0);
+        sections.push({
+            title: `3. Daily Profile — ${h.name} (Annual Average)`,
+            sheetName: `Daily ${h.name}`.substring(0, 31),
+            columns: ['Hour','Avg Demand (kWh)','PV Gen (kWh)','PV Direct (kWh)','Battery (kWh)','P2P Received (kWh)','Grid (kWh)'],
+            rows: HOURS.map((hr,i) => [hr,
+                _expRaw2(ha[i].demand||0), _expRaw2(ha[i].pvGen||0),
+                _expRaw2(ha[i].pvDirect||0), _expRaw2(ha[i].battUsed||0),
+                _expRaw2(ha[i].p2pIn||0), _expRaw2(ha[i].gridIn||0)]),
+            totalRow: ['Daily Total',
+                _expRaw2(sk('demand')), _expRaw2(sk('pvGen')), _expRaw2(sk('pvDirect')),
+                _expRaw2(sk('battUsed')), _expRaw2(sk('p2pIn')), _expRaw2(sk('gridIn'))],
+            numericCols: [1,2,3,4,5,6]
+        });
+    });
+
+    // ── 4. LCOE Comparison ────────────────────────────────────────
+    const avgW   = hhs.reduce((s,h)=>s+h.lcoeDemandP2P,0)/hhs.length;
+    const avgWo  = hhs.reduce((s,h)=>s+h.lcoeDemandNoP2P,0)/hhs.length;
+    const avgS   = avgWo - avgW;
+    const avgPct = avgWo > 0 ? avgS/avgWo*100 : 0;
+    sections.push({
+        title: '4. LCOE Comparison',
+        sheetName: 'LCOE Comparison',
+        columns: ['Household','LCOE w/ P2P (₱/kWh)','LCOE w/o P2P (₱/kWh)','Savings (₱/kWh)','Savings (%)'],
+        rows: hhs.map(h => {
+            const s = h.lcoeDemandNoP2P - h.lcoeDemandP2P;
+            const p = h.lcoeDemandNoP2P > 0 ? s/h.lcoeDemandNoP2P*100 : 0;
+            return [h.name, _expRaw4(h.lcoeDemandP2P), _expRaw4(h.lcoeDemandNoP2P),
+                    _expRaw4(s), _expRaw2(p)];
+        }),
+        totalRow: ['Average', _expRaw4(avgW), _expRaw4(avgWo), _expRaw4(avgS), _expRaw2(avgPct)],
+        numericCols: [1,2,3,4]
+    });
+
+    // ── 5. P2P Network ────────────────────────────────────────────
+    sections.push({
+        title: '5. P2P Network',
+        sheetName: 'P2P Network',
+        columns: ['Household','P2P Shared / Given (kWh)','P2P Received (kWh)','Net P2P (kWh)','Role'],
+        rows: hhs.map(h => {
+            const net = h.p2pReceived - h.p2pShared;
+            const role = net > 0.5 ? 'Net Receiver' : net < -0.5 ? 'Net Supplier' : 'Balanced';
+            return [h.name, _expRaw2(h.p2pShared), _expRaw2(h.p2pReceived), _expRaw2(net), role];
+        }),
+        totalRow: ['Network Total', _expRaw2(tot(h=>h.p2pShared)), _expRaw2(tot(h=>h.p2pReceived)), '—', ''],
+        numericCols: [1,2,3]
+    });
+
+    // ── 6. Detailed Results ───────────────────────────────────────
+    sections.push({
+        title: '6. Detailed Results',
+        sheetName: 'Detailed Results',
+        columns: ['Household','PV (kW)','Inv (kW)','Battery (kWh)','CAPEX (₱)','PW Repl. (₱)','PW Salvage (₱)',
+            'PV Gen (kWh)','Demand (kWh)','PV Direct (kWh)','Battery Used (kWh)','P2P Recv (kWh)',
+            'P2P Shared (kWh)','Grid Buy w/ P2P (kWh)','Grid Buy w/o P2P (kWh)',
+            'Self-Suff w/ P2P (%)','Self-Suff w/o P2P (%)','LCOE w/ P2P (₱/kWh)','LCOE w/o P2P (₱/kWh)','Annual Cost (₱)'],
+        rows: hhs.map((r) => {
+            const b   = r._lcoe || {};
+            return [
+                r.name, _expRaw2(b.pvKw||0), _expRaw2(b.inverterRatedCap||0), _expRaw2((b.numBatt||0)*3.28),
+                _expRaw2(r.capex), _expRaw2(r.pwRepl), _expRaw2(r.pwSalvage),
+                _expRaw2(r.totalPV), _expRaw2(r.totalDemand), _expRaw2(r.pvDirect), _expRaw2(r.batteryUsed),
+                _expRaw2(r.p2pReceived), _expRaw2(r.p2pShared),
+                _expRaw2(r.gridPurchased), _expRaw2(r.gridPurchasedNoP2P),
+                _expRaw2(r.selfSufficiency), _expRaw2(r.selfSufficiencyNoP2P),
+                _expRaw4(r.lcoeDemandP2P), _expRaw4(r.lcoeDemandNoP2P), _expRaw2(r.annualCost)
+            ];
+        }),
+        numericCols: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    });
+
+    return {
+        title: 'P2P Energy Sharing Simulation — Results Report',
+        sections,
+        filenameStem: 'P2P_Simulation_Report'
+    };
+}
+
+// ─── Build Detailed Computations data for export ────────────────────
+// Exports the currently-selected day from the Detailed Computations panel.
+function _buildDetailedComputationsData() {
+    if (!simResults || !simResults.dailyBreakdown) return null;
+    const hhs = simResults.households;
+
+    const daySel = document.getElementById('dc-day-select');
+    const hourSel = document.getElementById('dc-hour-select');
+    const dayIdx  = daySel  ? +daySel.value  : 0;
+    const hourIdx = hourSel ? +hourSel.value : 2;
+    const dayData = simResults.dailyBreakdown[dayIdx];
+    if (!dayData) return null;
+
+    const sections = [];
+
+    // ── Section A: 24-hour energy computation table ────────────────
+    const allRows = [];
+    for (let hr = 0; hr < 24; hr++) {
+        for (let i = 0; i < hhs.length; i++) {
+            const r = dayData[hr] ? dayData[hr][i] : null;
+            const hourLabel = i === 0 ? `${String(hr).padStart(2,'0')}:00` : '';
+            if (!r) {
+                allRows.push([hourLabel, hhs[i].name, '—','—','—','—','—','—','—','—','—','—','—','—']);
+                continue;
+            }
+            // Format P2P column like the on-screen table: "+x rcv" / "−x shr" / "—"
+            let p2pCol = '—';
+            if (r.p2pIn  > 1e-6) p2pCol = `+${r.p2pIn.toFixed(4)} rcv`;
+            else if (r.p2pOut > 1e-6) p2pCol = `−${r.p2pOut.toFixed(4)} shr`;
+            allRows.push([
+                hourLabel, hhs[i].name,
+                _expRaw4(r.demand), _expRaw4(r.pvGen), _expRaw4(r.socBefore),
+                r.phase,
+                _expRaw4(r.pvDirect), _expRaw4(r.battCharged), _expRaw4(r.battUsed),
+                _expRaw4(r.deficit), p2pCol,
+                _expRaw4(r.socAfter), _expRaw4(r.gridBuy), _expRaw4(r.gridExport)
+            ]);
+        }
+    }
+    sections.push({
+        title: `One-Day Hourly Energy Computation — Day ${dayIdx + 1} (${_dcDayLabel(dayIdx)})`,
+        sheetName: '24h Energy Computation',
+        columns: ['Hour','HH','Demand','PV Gen','SoC Before','Phase',
+                  'PV Direct','Batt Charged','Batt Used','Deficit','P2P',
+                  'SoC After','Grid Buy','Grid Export'],
+        rows: allRows,
+        numericCols: [2,3,4,6,7,8,9,11,12,13]   // not 10 (P2P is mixed)
+    });
+
+    // ── Section B: Daily summary (mirrors PDF section 7) ───────────
+    const totals = hhs.map(() => ({demand:0, pvGen:0, pvDirect:0, battCharged:0, battUsed:0,
+                                   p2pIn:0, p2pOut:0, gridBuy:0, gridExport:0}));
+    for (let hr = 0; hr < 24; hr++) {
+        for (let i = 0; i < hhs.length; i++) {
+            const r = dayData[hr] ? dayData[hr][i] : null;
+            if (!r) continue;
+            totals[i].demand+=r.demand; totals[i].pvGen+=r.pvGen; totals[i].pvDirect+=r.pvDirect;
+            totals[i].battCharged+=r.battCharged; totals[i].battUsed+=r.battUsed;
+            totals[i].p2pIn+=r.p2pIn; totals[i].p2pOut+=r.p2pOut;
+            totals[i].gridBuy+=r.gridBuy; totals[i].gridExport+=r.gridExport;
+        }
+    }
+    const cfg = simResults.cfg;
+    let net = {demand:0, pvGen:0, pvDirect:0, battCharged:0, battUsed:0,
+               p2pIn:0, p2pOut:0, gridBuy:0, gridExport:0, gridCost:0};
+    const summaryRows = hhs.map((h, i) => {
+        const t = totals[i];
+        const gridCost = t.gridBuy * cfg.gridPrice;
+        const ss = t.demand > 0 ? (1 - t.gridBuy / t.demand) * 100 : 0;
+        net.demand+=t.demand; net.pvGen+=t.pvGen; net.pvDirect+=t.pvDirect;
+        net.battCharged+=t.battCharged; net.battUsed+=t.battUsed;
+        net.p2pIn+=t.p2pIn; net.p2pOut+=t.p2pOut;
+        net.gridBuy+=t.gridBuy; net.gridExport+=t.gridExport; net.gridCost+=gridCost;
+        return [h.name, _expRaw4(t.demand), _expRaw4(t.pvGen), _expRaw4(t.pvDirect),
+                _expRaw4(t.battCharged), _expRaw4(t.battUsed),
+                _expRaw4(t.p2pIn), _expRaw4(t.p2pOut),
+                _expRaw4(t.gridBuy), _expRaw4(t.gridExport),
+                _expRaw2(gridCost), _expRaw2(ss)];
+    });
+    const netSS = net.demand > 0 ? (1 - net.gridBuy / net.demand) * 100 : 0;
+    sections.push({
+        title: `Daily Summary — Day ${dayIdx + 1} (${_dcDayLabel(dayIdx)})`,
+        sheetName: 'Daily Summary',
+        columns: ['Household','Demand (kWh)','PV Gen (kWh)','PV Direct (kWh)','Batt Charged (kWh)','Batt Used (kWh)',
+                  'P2P Recv (kWh)','P2P Shared (kWh)','Grid Buy (kWh)','Grid Export (kWh)','Grid Cost (₱)','Self-Suff (%)'],
+        rows: summaryRows,
+        totalRow: ['Network', _expRaw4(net.demand), _expRaw4(net.pvGen), _expRaw4(net.pvDirect),
+                   _expRaw4(net.battCharged), _expRaw4(net.battUsed),
+                   _expRaw4(net.p2pIn), _expRaw4(net.p2pOut),
+                   _expRaw4(net.gridBuy), _expRaw4(net.gridExport),
+                   _expRaw2(net.gridCost), _expRaw2(netSS)],
+        numericCols: [1,2,3,4,5,6,7,8,9,10,11]
+    });
+
+    // ── Section C: Energy Balance Verification ─────────────────────
+    sections.push({
+        title: 'Energy Balance Verification',
+        sheetName: 'Energy Balance',
+        description: 'Supply = PV Direct + Batt Used + P2P Received + Grid Buy must equal Demand.',
+        columns: ['Household','PV Direct','Batt Used','P2P Received','Grid Buy','Computed Supply','Demand','Δ Error','Status'],
+        rows: hhs.map((h, i) => {
+            const t = totals[i];
+            const supply = t.pvDirect + t.battUsed + t.p2pIn + t.gridBuy;
+            const err = Math.abs(supply - t.demand);
+            const ok = err < 0.005;
+            return [h.name, _expRaw4(t.pvDirect), _expRaw4(t.battUsed), _expRaw4(t.p2pIn),
+                    _expRaw4(t.gridBuy), _expRaw4(supply), _expRaw4(t.demand),
+                    _expRaw4(err), ok ? '✓ OK' : '✗ Mismatch'];
+        }),
+        numericCols: [1,2,3,4,5,6,7]
+    });
+
+    // ── Section D: Step-by-step substitution for the selected hour ─
+    // Format as a simple two-column table: "Formula" + "Value/Substitution"
+    const stepRows = _buildStepBySubstitutionRows(dayIdx, hourIdx);
+    sections.push({
+        title: `Sample Detailed Step-by-Step Calculations — Hour ${String(hourIdx).padStart(2,'0')}:00`,
+        sheetName: `Step-by-Step ${String(hourIdx).padStart(2,'0')}h`.substring(0, 31),
+        description: `Full numerical substitution at Hour ${String(hourIdx).padStart(2,'0')}:00 across Phase 1 (Own Dispatch), Phase 2 (P2P Sharing), Phase 3 (Grid).`,
+        columns: ['Section','Quantity','Formula / Substitution','Value'],
+        rows: stepRows,
+        numericCols: []
+    });
+
+    return {
+        title: `Detailed Computations — Day ${dayIdx + 1} (${_dcDayLabel(dayIdx)})`,
+        sections,
+        filenameStem: `Detailed_Computations_Day${dayIdx + 1}`
+    };
+}
+
+// Helper: build step-by-step rows as [section, quantity, formula, value]
+function _buildStepBySubstitutionRows(dayIdx, hr) {
+    if (!simResults || !simResults.dailyBreakdown) return [];
+    const hhs = simResults.households;
+    const consts = simResults.breakdownConsts;
+    const dayData = simResults.dailyBreakdown[dayIdx];
+    const p2pMeta = simResults.dailyP2PMeta ? simResults.dailyP2PMeta[dayIdx][hr] : null;
+    const dailyShared = simResults.dailySharedAtP2P ? simResults.dailySharedAtP2P[dayIdx][hr] : null;
+    const cfg  = simResults.cfg;
+    const ηc = consts.chargeEff, ηd = consts.dischargeEff;
+    const f = v => (Math.abs(v) < 1e-5 ? '0.0000' : (+v).toFixed(4));
+    const rows = [];
+
+    // PHASE 1
+    for (let i = 0; i < hhs.length; i++) {
+        const rec = dayData[hr][i];
+        if (!rec) continue;
+        const usable = consts.usableCap[i], minSoc = consts.minSoc[i], maxRt = consts.maxRate[i];
+        const D = rec.demand, PV = rec.pvGen, SoC = rec.socBefore;
+        const sec = `Phase 1 — ${hhs[i].name}`;
+        rows.push([sec, '— Inputs —', `PV=${f(PV)}, Demand=${f(D)}, SoC=${f(SoC)} kWh`, '']);
+        if (PV >= D) {
+            rows.push([sec, 'Case', 'PV ≥ Demand → Charge / Export', '']);
+            const E_rem  = PV - D;
+            const space  = Math.max(0, usable - SoC);
+            const spaceOverη = space > 0 ? space / ηc : 0;
+            const E_charge = Math.min(E_rem, maxRt, spaceOverη);
+            const SoC_end_calc = SoC + E_charge * ηc;
+            const E_excess = E_rem - E_charge;
+            rows.push([sec, 'PV_direct', `min(PV, Demand) = min(${f(PV)}, ${f(D)})`, `${f(D)} kWh`]);
+            rows.push([sec, 'E_rem',     `PV − Demand = ${f(PV)} − ${f(D)}`, `${f(E_rem)} kWh`]);
+            rows.push([sec, 'Space',     `Usable − SoC = ${f(usable)} − ${f(SoC)}`, `${f(space)} kWh`]);
+            rows.push([sec, 'MaxRate',   `0.5 × C = 0.5 × ${f(consts.battCap[i])}`, `${f(maxRt)} kWh/hr`]);
+            rows.push([sec, 'E_charge',  `min(E_rem, MaxRate, Space/η_c) = min(${f(E_rem)}, ${f(maxRt)}, ${f(spaceOverη)})`, `${f(E_charge)} kWh`]);
+            rows.push([sec, 'SoC_end',   `SoC + E_charge × η_c = ${f(SoC)} + ${f(E_charge)} × ${ηc}`, `${f(SoC_end_calc)} kWh`]);
+            rows.push([sec, 'E_excess',  `E_rem − E_charge = ${f(E_rem)} − ${f(E_charge)}`, `${f(E_excess)} kWh`]);
+        } else {
+            rows.push([sec, 'Case', 'PV < Demand → Discharge battery', '']);
+            const E_need = D - PV;
+            const E_avail = Math.max(0, SoC - minSoc);
+            const E_discharge = Math.min(E_need, maxRt, E_avail);
+            const SoC_end_calc = Math.max(minSoc, SoC - E_discharge / ηd);
+            const E_deficit = E_need - E_discharge;
+            rows.push([sec, 'E_need',      `D − PV = ${f(D)} − ${f(PV)}`, `${f(E_need)} kWh`]);
+            rows.push([sec, 'E_avail',     `SoC − SoC_min = ${f(SoC)} − ${f(minSoc)}`, `${f(E_avail)} kWh`]);
+            rows.push([sec, 'MaxRate',     `0.5 × C = 0.5 × ${f(consts.battCap[i])}`, `${f(maxRt)} kWh/hr`]);
+            rows.push([sec, 'E_discharge', `min(E_need, MaxRate, E_avail) = min(${f(E_need)}, ${f(maxRt)}, ${f(E_avail)})`, `${f(E_discharge)} kWh`]);
+            rows.push([sec, 'SoC_end',     `max(SoC_min, SoC − E_dis/η_d) = max(${f(minSoc)}, ${f(SoC)} − ${f(E_discharge)}/${ηd})`, `${f(SoC_end_calc)} kWh`]);
+            rows.push([sec, 'E_deficit',   `E_need − E_discharge = ${f(E_need)} − ${f(E_discharge)}`, `${f(E_deficit)} kWh`]);
+        }
+    }
+
+    // PHASE 2
+    if (p2pMeta && (p2pMeta.suppliers.length > 0 || p2pMeta.allocOrder.length > 0)) {
+        const sec = 'Phase 2 — P2P Sharing';
+        const suppliers = p2pMeta.suppliers || [];
+        const demanders = p2pMeta.allocOrder || [];
+        if (demanders.length > 0)
+            rows.push([sec, 'Demanders', demanders.map(d => `${hhs[d.idx].name} (deficit=${f(d.requested)})`).join('; '), '']);
+        if (suppliers.length > 0)
+            rows.push([sec, 'Suppliers', suppliers.map(s => hhs[s.idx].name).join(', '), '']);
+
+        for (const s of suppliers) {
+            const sub = `Phase 2 — ${hhs[s.idx].name} Offer`;
+            const i = s.idx;
+            const sharedNote = dailyShared ? dailyShared[i] : 0;
+            rows.push([sub, 'DailyCap',          `Usable × battSharePct = ${f(s.hhUsableCap)} × ${consts.battSharePct[i].toFixed(4)}`, `${f(s.dailyCap)} kWh`]);
+            rows.push([sub, 'DailyRemaining',    `DailyCap − dailyShared = ${f(s.dailyCap)} − ${f(sharedNote)}`, `${f(s.dailyRemaining)} kWh`]);
+            rows.push([sub, 'Available > floor', `SoC − SoC_min`, `${f(s.availableForShare)} kWh`]);
+            rows.push([sub, 'E_maxShare',        `Available × η_d = ${f(s.availableForShare)} × ${ηd}`, `${f(s.maxShareable)} kWh`]);
+            rows.push([sub, 'Half C-rate',       `0.5 × MaxRate = 0.5 × ${f(consts.maxRate[i])}`, `${f(s.halfCRate)} kWh`]);
+            rows.push([sub, 'Daily limit',       `DailyRemaining × η_d = ${f(s.dailyRemaining)} × ${ηd}`, `${f(s.dailyLimit)} kWh`]);
+            rows.push([sub, 'E_offer',           `min(${f(s.maxShareable)}, ${f(s.halfCRate)}, ${f(s.dailyLimit)})`, `${f(s.offer)} kWh`]);
+        }
+
+        const pool = p2pMeta.pool;
+        const sumExpr = suppliers.map(s => f(s.offer)).join(' + ');
+        rows.push(['Phase 2 — Pool', 'Pool', sumExpr || '0', `${f(pool)} kWh`]);
+
+        if (demanders.some(d => d.received > 1e-9)) {
+            for (const d of demanders) {
+                if (d.received <= 1e-9 && d.requested <= 1e-9) continue;
+                const sub = `Phase 2 — ${hhs[d.idx].name} Receives`;
+                rows.push([sub, 'Received',      `min(deficit, pool) = min(${f(d.requested)}, ${f(d.poolBefore)})`, `${f(d.received)} kWh`]);
+                rows.push([sub, 'Pool remaining',`${f(d.poolBefore)} − ${f(d.received)}`, `${f(d.poolAfter)} kWh`]);
+            }
+            const totalUsed = suppliers.reduce((s,x) => s + x.shared, 0);
+            const ratio = p2pMeta.shareRatio;
+            const usedExpr = demanders.filter(d => d.received > 1e-9).map(d => f(d.received)).join(' + ');
+            rows.push(['Phase 2 — Deduction','Total used', usedExpr || '0', `${f(totalUsed)} kWh`]);
+            rows.push(['Phase 2 — Deduction','Use ratio',  `Total used / Pool = ${f(totalUsed)} / ${f(pool)}`, ratio.toFixed(5)]);
+            for (const s of suppliers) {
+                if (s.shared <= 1e-9) continue;
+                const sub = `Phase 2 — ${hhs[s.idx].name} Deducts`;
+                const rec = dayData[hr][s.idx];
+                const socBeforeP2P = rec.socAfter + s.shared / ηd;
+                rows.push([sub, 'Shared', `${f(s.offer)} × ${ratio.toFixed(5)}`, `${f(s.shared)} kWh`]);
+                rows.push([sub, 'New SoC', `${f(socBeforeP2P)} − ${f(s.shared)}/${ηd}`, `${f(rec.socAfter)} kWh`]);
+            }
+        }
+    } else {
+        rows.push(['Phase 2 — P2P Sharing','Status','No P2P sharing this hour','']);
+    }
+
+    // PHASE 3
+    let totalGridBuy = 0, totalGridExp = 0;
+    for (let i = 0; i < hhs.length; i++) {
+        const r = dayData[hr][i];
+        if (!r) continue;
+        totalGridBuy += r.gridBuy; totalGridExp += r.gridExport;
+        if (r.gridBuy > 1e-6 || r.gridExport > 1e-6 || r.p2pIn > 1e-6) {
+            rows.push([`Phase 3 — ${hhs[i].name}`, 'Grid_buy',
+                `max(0, deficit_post_P2P) = max(0, ${f(r.deficit)})`, `${f(r.gridBuy)} kWh`]);
+            if (r.gridExport > 1e-6) {
+                rows.push([`Phase 3 — ${hhs[i].name}`, 'Grid_export',
+                    'Post-battery surplus', `${f(r.gridExport)} kWh`]);
+            }
+        }
+    }
+    const gridCost = totalGridBuy * cfg.gridPrice;
+    rows.push(['Phase 3 — Totals', 'Grid buy total',     '', `${f(totalGridBuy)} kWh`]);
+    rows.push(['Phase 3 — Totals', 'Grid export total',  '', `${f(totalGridExp)} kWh`]);
+    rows.push(['Phase 3 — Totals', 'Grid cost (₱)',
+              `${f(totalGridBuy)} × ₱${cfg.gridPrice.toFixed(2)}`, `₱${gridCost.toFixed(2)}`]);
+
+    return rows;
+}
+
+
+// ─── Top-level dispatchers wired to the dropdown buttons ────────────
+function exportReports(format) {
+    document.querySelectorAll('.export-dropdown').forEach(d => d.style.display = 'none');
+    if (!simResults) { alert('Run a simulation first.'); return; }
+    const data = _buildReportsData();
+    if (!data) { alert('No data to export.'); return; }
+    const btn = document.getElementById('btn-export-reports');
+    if (btn) { btn.disabled = true; const orig = btn.innerHTML; btn.textContent = 'Building…';
+        setTimeout(() => {
+            try { _runExport(data, format); }
+            catch (e) { console.error(e); alert('Export failed: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = orig;
+        }, 30);
+    } else { _runExport(data, format); }
+}
+
+function exportDetailedComputations(format) {
+    document.querySelectorAll('.export-dropdown').forEach(d => d.style.display = 'none');
+    if (!simResults || !simResults.dailyBreakdown) { alert('Run a simulation first.'); return; }
+    const data = _buildDetailedComputationsData();
+    if (!data) { alert('No data to export.'); return; }
+    const btn = document.getElementById('btn-export-dc');
+    if (btn) { btn.disabled = true; const orig = btn.innerHTML; btn.textContent = 'Building…';
+        setTimeout(() => {
+            try { _runExport(data, format); }
+            catch (e) { console.error(e); alert('Export failed: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = orig;
+        }, 30);
+    } else { _runExport(data, format); }
+}
+
+function _runExport(data, format) {
+    if (format === 'pdf')  return _exportAsPDF(data);
+    if (format === 'docx') return _exportAsDOCX(data);
+    if (format === 'xlsx') return _exportAsXLSX(data);
+    alert('Unknown format: ' + format);
+}
+
+// ─── PDF: opens printable HTML window ───────────────────────────────
+function _exportAsPDF(data) {
     const CSS = `
         body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 16px; }
         h1 { font-size: 16px; margin: 0 0 4px; }
-        h2 { font-size: 13px; margin: 24px 0 6px; border-bottom: 2px solid #333; padding-bottom: 3px; }
-        h3 { font-size: 11px; margin: 16px 0 4px; color: #444; }
+        h2 { font-size: 13px; margin: 22px 0 6px; border-bottom: 2px solid #333; padding-bottom: 3px; }
         p  { font-size: 10px; color: #666; margin: 0 0 8px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px; }
         th { background: #e8edf2; padding: 5px 8px; text-align: right; font-weight: 700;
              border: 1px solid #bbb; white-space: nowrap; }
         th:first-child { text-align: left; }
@@ -66,195 +522,227 @@ function exportReportsPDF() {
         td:first-child { text-align: left; }
         tr:nth-child(even) td { background: #f6f8fa; }
         .total-row td { background: #dbeafe !important; font-weight: 700; }
-        .summary-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 16px; }
-        .summary-box { border: 1.5px solid #bcd; border-radius: 8px; padding: 12px 16px; background: #f0f6ff; text-align: center; }
-        .summary-box .val { font-size: 22px; font-weight: 800; color: #1d4ed8; }
-        .summary-box .lbl { font-size: 11px; font-weight: 700; color: #333; margin-top: 2px; }
-        .summary-box .sub { font-size: 10px; color: #666; margin-top: 1px; }
-        .page-break { page-break-before: always; }
-        @page {
-        size: A4 landscape;
-        margin: 12mm;
-        @bottom-center {
-            content: "P2P Energy Sharing Simulation";
-            font-size: 9px;
-            color: #666;
-        }
-    }
+        .formula-row td { font-style: italic; color: #64748b; font-size: 9px; background: #f8fafc !important; }
+        @page { size: A4 landscape; margin: 12mm;
+                @bottom-center { content: "P2P Energy Sharing Simulation"; font-size: 9px; color: #666; } }
         @media print { .no-print { display: none; } }
     `;
-
-    // ── Helper: build a simple table from headers + rows ─────────────────
-    const makeTable = (headers, rows, totalRow) => {
-        let h = `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`;
-        rows.forEach(r => { h += `<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`; });
-        if (totalRow) h += `<tr class="total-row">${totalRow.map(c=>`<td>${c}</td>`).join('')}</tr>`;
-        return h + '</tbody></table>';
-    };
-
-    // ── 1. Energy Breakdown ───────────────────────────────────────────────
-    const energyTable = makeTable(
-        ['Household','PV Direct (kWh)','Battery (kWh)','P2P Received (kWh)','Grid (kWh)','Total Demand (kWh)'],
-        hhs.map(h => [h.name, fmt(h.pvDirect), fmt(h.batteryUsed), fmt(h.p2pReceived), fmt(h.gridPurchased),
-                      fmt(h.pvDirect+h.batteryUsed+h.p2pReceived+h.gridPurchased)]),
-        ['Network Total', fmt(tot(h=>h.pvDirect)), fmt(tot(h=>h.batteryUsed)),
-         fmt(tot(h=>h.p2pReceived)), fmt(tot(h=>h.gridPurchased)),
-         fmt(tot(h=>h.pvDirect+h.batteryUsed+h.p2pReceived+h.gridPurchased))]
-    );
-
-    // ── 2. Monthly Trends ─────────────────────────────────────────────────
-    const dem=[],pv=[],grid=[],p2p=[];
-    for(let mi=0;mi<12;mi++){dem[mi]=pv[mi]=grid[mi]=p2p[mi]=0;}
-    hhs.forEach(h=>h.monthly.forEach((m,mi)=>{
-        dem[mi]+=m.demand; pv[mi]+=m.pvGen; grid[mi]+=m.gridIn; p2p[mi]+=m.p2pIn;
-    }));
-    const sum = a => a.reduce((s,v)=>s+v,0);
-    const monthlyTable = makeTable(
-        ['Month','Total Demand (kWh)','PV Generation (kWh)','Grid Purchased (kWh)','P2P Traded (kWh)'],
-        MO.map((mn,mi) => [mn, fmt(dem[mi]), fmt(pv[mi]), fmt(grid[mi]), fmt(p2p[mi])]),
-        ['Annual Total', fmt(sum(dem)), fmt(sum(pv)), fmt(sum(grid)), fmt(sum(p2p))]
-    );
-
-    // ── 3. Daily Profiles — all 6 households, all months avg ─────────────
-    let dailySection = '';
-    hhs.forEach((h, hi) => {
-        // hourlyAvg is a top-level property on h, averaged across all 365 days
-        const ha = h.hourlyAvg || Array.from({length:24}, () => ({demand:0,pvGen:0,pvDirect:0,battUsed:0,p2pIn:0,gridIn:0}));
-        const sk = k => ha.reduce((a,d)=>a+(d[k]||0),0);
-        dailySection += `<h3>${h.name} — Annual Average Daily Profile</h3>`;
-        dailySection += makeTable(
-            ['Hour','Avg Demand (kWh)','PV Gen (kWh)','PV Direct (kWh)','Battery (kWh)','P2P Received (kWh)','Grid (kWh)'],
-            HOURS.map((hr,i) => [hr, fmt(ha[i].demand||0), fmt(ha[i].pvGen||0),
-                fmt(ha[i].pvDirect||0), fmt(ha[i].battUsed||0),
-                fmt(ha[i].p2pIn||0), fmt(ha[i].gridIn||0)]),
-            ['Daily Total', fmt(sk('demand')), fmt(sk('pvGen')), fmt(sk('pvDirect')),
-             fmt(sk('battUsed')), fmt(sk('p2pIn')), fmt(sk('gridIn'))]
-        );
-    });
-
-    // ── 4. LCOE Comparison ────────────────────────────────────────────────
-    const avgW  = hhs.reduce((s,h)=>s+h.lcoeDemandP2P,0)/hhs.length;
-    const avgWo = hhs.reduce((s,h)=>s+h.lcoeDemandNoP2P,0)/hhs.length;
-    const avgS  = avgWo - avgW;
-    const avgPct = avgWo > 0 ? avgS/avgWo*100 : 0;
-    const lcoeTable = makeTable(
-        ['Household','LCOE w/ P2P (₱/kWh)','LCOE w/o P2P (₱/kWh)','Savings (₱/kWh)','Savings (%)'],
-        hhs.map(h => {
-            const s = h.lcoeDemandNoP2P - h.lcoeDemandP2P;
-            const p = h.lcoeDemandNoP2P > 0 ? s/h.lcoeDemandNoP2P*100 : 0;
-            return [h.name, fmtD(h.lcoeDemandP2P), fmtD(h.lcoeDemandNoP2P),
-                    (s>=0?'+':'')+fmtD(s), fmtP(p)+'%'];
-        }),
-        ['Average', fmtD(avgW), fmtD(avgWo), (avgS>=0?'+':'')+fmtD(avgS), fmtP(avgPct)+'%']
-    );
-
-    // ── 5. P2P Network ────────────────────────────────────────────────────
-    const p2pTable = makeTable(
-        ['Household','P2P Shared / Given (kWh)','P2P Received (kWh)','Net P2P (kWh)','Role'],
-        hhs.map(h => {
-            const net = h.p2pReceived - h.p2pShared;
-            const role = net > 0.5 ? 'Net Receiver' : net < -0.5 ? 'Net Supplier' : 'Balanced';
-            return [h.name, fmt(h.p2pShared), fmt(h.p2pReceived), (net>=0?'+':'')+fmt(net), role];
-        }),
-        ['Network Total', fmt(tot(h=>h.p2pShared)), fmt(tot(h=>h.p2pReceived)), '—', '']
-    );
-
-    // ── 6. Detailed Results ───────────────────────────────────────────────
-    const cfg = simResults.cfg;
-    const detailedTable = makeTable(
-        ['Household','PV (kW)','Inv (kW)','Battery (kWh)','CAPEX (₱)','PW Repl. (₱)','PW Salvage (₱)',
-         'PV Gen (kWh)','Demand (kWh)','PV Direct (kWh)','Battery (kWh)','P2P Recv (kWh)',
-         'P2P Shared (kWh)','Grid Buy w/ P2P (kWh)','Grid Buy w/o P2P (kWh)',
-         'Self-Suff w/ P2P','Self-Suff w/o P2P','LCOE w/ P2P','LCOE w/o P2P','Annual Cost (₱)'],
-        hhs.map((r, i) => {
-            const b   = r._lcoe || {};
-            const pvKw  = f2(b.pvKw  || 0);
-            const invKw = f2(b.inverterRatedCap || 0);
-            const battKwh = f2((b.numBatt || 0) * 3.28);
-            return [
-                r.name, pvKw, invKw, battKwh,
-                f2(r.capex), f2(r.pwRepl), f2(r.pwSalvage),
-                f2(r.totalPV), f2(r.totalDemand), f2(r.pvDirect), f2(r.batteryUsed),
-                f2(r.p2pReceived), f2(r.p2pShared),
-                f2(r.gridPurchased), f2(r.gridPurchasedNoP2P),
-                fmtP(r.selfSufficiency)+'%', fmtP(r.selfSufficiencyNoP2P)+'%',
-                '₱'+fmtD(r.lcoeDemandP2P), '₱'+fmtD(r.lcoeDemandNoP2P),
-                f2(r.annualCost)
-            ];
-        })
-    );
-
-    // ── Assemble full HTML document ───────────────────────────────────────
-    const now = new Date().toLocaleString('en-PH');
-    const doc = `<!DOCTYPE html><html><head><meta charset="utf-8">
-    <title>P2P Energy Sharing Simulation</title>
-    <style>${CSS}</style></head><body>
-    <h1>P2P Energy Sharing Simulation — Results Report</h1>
-    <p>Generated: ${now} &nbsp;|&nbsp; Simulation: 8,760 hours (full year)</p>
-    <button class="no-print" onclick="window.print()"
-        style="padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;
-               font-size:13px;cursor:pointer;margin-bottom:16px">
-        🖨 Print / Save as PDF
-    </button>
-
-    <h2>Summary</h2>
-    <div class="summary-grid">
-        <div class="summary-box">
-            <div class="val">${fmt(simResults.totalP2PShared)}</div>
-            <div class="lbl">kWh P2P Shared</div>
-            <div class="sub">Total network energy traded</div>
-        </div>
-        <div class="summary-box">
-            <div class="val">₱${fmt(simResults.avgLCOE)}</div>
-            <div class="lbl">Avg LCOE (₱/kWh)</div>
-            <div class="sub">Across all households</div>
-        </div>
-        <div class="summary-box">
-            <div class="val">${fmt(simResults.totalGrid)}</div>
-            <div class="lbl">kWh Grid Purchased</div>
-            <div class="sub">Total from utility grid</div>
-        </div>
-        <div class="summary-box">
-            <div class="val">${fmt(simResults.avgSelfSuff)}%</div>
-            <div class="lbl">Avg Self-Sufficiency</div>
-            <div class="sub">Energy from PV + battery + P2P</div>
-        </div>
-    </div>
-
-    <h2>1. Energy Breakdown</h2>
-    ${energyTable}
-
-    <h2>2. Monthly Trends</h2>
-    ${monthlyTable}
-
-    <h2 class="page-break">3. Daily Profiles (Annual Average — All Households)</h2>
-    ${dailySection}
-
-    <h2 class="page-break">4. LCOE Comparison</h2>
-    ${lcoeTable}
-
-    <h2>5. P2P Network</h2>
-    ${p2pTable}
-
-    <h2 class="page-break">6. Detailed Results</h2>
-    ${detailedTable}
-
-    </body></html>`;
-
-    // ── Open in new window and print ─────────────────────────────────────
+    let body = `<h1>${data.title}</h1>
+        <p>Generated: ${new Date().toLocaleString('en-PH')}</p>
+        <button class="no-print" onclick="window.print()"
+            style="padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;margin-bottom:16px">
+            🖨 Print / Save as PDF
+        </button>`;
+    for (const sec of data.sections) {
+        body += `<h2>${sec.title}</h2>`;
+        if (sec.description) body += `<p>${sec.description}</p>`;
+        body += '<table><thead><tr>' + sec.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+        const formulaSubRows = !!sec.formulaSubRows;
+        sec.rows.forEach((r, rIdx) => {
+            const cls = (formulaSubRows && rIdx % 2 === 1) ? ' class="formula-row"' : '';
+            body += `<tr${cls}>` + r.map(c => `<td>${c}</td>`).join('') + '</tr>';
+        });
+        if (sec.totalRow)
+            body += '<tr class="total-row">' + sec.totalRow.map(c => `<td>${c}</td>`).join('') + '</tr>';
+        body += '</tbody></table>';
+    }
+    const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${data.title}</title><style>${CSS}</style></head><body>${body}</body></html>`;
     const win = window.open('', '_blank');
-    win.document.write(doc);
-    win.document.close();
-    win.onload = () => { win.focus(); };
-
-    btn.disabled = false;
-    btn.innerHTML = '⬇ Export as PDF';
+    win.document.write(doc); win.document.close();
+    win.onload = () => win.focus();
 }
+
+// ─── DOCX: build OOXML file via html-docx-js ─────────────────────────
+function _exportAsDOCX(data) {
+    if (typeof htmlDocx === 'undefined' || !htmlDocx.asBlob) {
+        alert('DOCX library failed to load. Check your internet connection and try again.');
+        return;
+    }
+    // Word reads inline styles best — repeat them on every <table>/<th>/<td>
+    const tableStyle = 'border-collapse:collapse;width:100%;margin-bottom:12pt;font-family:Arial,sans-serif;font-size:10pt';
+    const thStyle    = 'border:1px solid #888;background:#dbeafe;padding:5px 8px;text-align:right;font-weight:700';
+    const thStyleL   = thStyle + ';text-align:left';
+    const tdStyle    = 'border:1px solid #bbb;padding:4px 8px;text-align:right;font-family:Arial,sans-serif';
+    const tdStyleL   = tdStyle + ';text-align:left';
+    const tdStyleSub  = 'border:1px solid #d1d5db;padding:4px 8px;text-align:right;font-family:Arial,sans-serif;font-style:italic;color:#64748b;font-size:9pt;background:#f8fafc';
+    const tdStyleSubL = tdStyleSub + ';text-align:left';
+    const totalTd    = 'border:1px solid #888;background:#dbeafe;padding:5px 8px;font-weight:700;font-family:Arial,sans-serif';
+    const totalTdL   = totalTd + ';text-align:left';
+
+    let body = `<h1 style="font-family:Arial,sans-serif;font-size:18pt;margin:0 0 6pt 0;color:#1d4ed8">${data.title}</h1>
+        <p style="font-family:Arial,sans-serif;font-size:10pt;color:#666;margin:0 0 14pt 0">Generated: ${new Date().toLocaleString('en-PH')}</p>`;
+    for (const sec of data.sections) {
+        body += `<h2 style="font-family:Arial,sans-serif;font-size:13pt;margin:14pt 0 6pt 0;color:#0f172a;border-bottom:1.5pt solid #333;padding-bottom:3pt">${sec.title}</h2>`;
+        if (sec.description)
+            body += `<p style="font-family:Arial,sans-serif;font-size:10pt;color:#555;margin:0 0 8pt 0">${sec.description}</p>`;
+        body += `<table style="${tableStyle}"><thead><tr>`;
+        sec.columns.forEach((c, i) => {
+            body += `<th style="${i === 0 ? thStyleL : thStyle}">${c}</th>`;
+        });
+        body += '</tr></thead><tbody>';
+        const formulaSubRows = !!sec.formulaSubRows;
+        sec.rows.forEach((r, rIdx) => {
+            const isFormulaSubRow = formulaSubRows && (rIdx % 2 === 1);
+            body += '<tr>';
+            r.forEach((cell, i) => {
+                const styleL = isFormulaSubRow ? tdStyleSubL : tdStyleL;
+                const styleR = isFormulaSubRow ? tdStyleSub  : tdStyle;
+                body += `<td style="${i === 0 ? styleL : styleR}">${cell === null || cell === undefined ? '' : cell}</td>`;
+            });
+            body += '</tr>';
+        });
+        if (sec.totalRow) {
+            body += '<tr>';
+            sec.totalRow.forEach((cell, i) => {
+                body += `<td style="${i === 0 ? totalTdL : totalTd}">${cell === null || cell === undefined ? '' : cell}</td>`;
+            });
+            body += '</tr>';
+        }
+        body += '</tbody></table>';
+    }
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${body}</body></html>`;
+    const blob = htmlDocx.asBlob(html, { orientation: 'landscape', margins: {top:720, right:720, bottom:720, left:720} });
+    _saveBlob(blob, `${data.filenameStem}.docx`);
+}
+
+// ─── XLSX: build a real workbook via SheetJS ─────────────────────────
+function _exportAsXLSX(data) {
+    if (typeof XLSX === 'undefined' || !XLSX.utils) {
+        alert('XLSX library failed to load. Check your internet connection and try again.');
+        return;
+    }
+    const wb = XLSX.utils.book_new();
+    const usedNames = new Set();
+
+    for (const sec of data.sections) {
+        // Use xlsxRows if provided (raw numeric values), else fall back to display rows
+        const dataRows = sec.xlsxRows || sec.rows;
+        // Build the 2D array: title row + blank + headers + rows + totals
+        const aoa = [];
+        aoa.push([sec.title]);
+        if (sec.description) aoa.push([sec.description]);
+        aoa.push([]);
+        aoa.push(sec.columns.slice());
+        const headerRowIdx = aoa.length - 1;     // 0-based row index of the column header
+        for (const r of dataRows) aoa.push(r.slice());
+        if (sec.totalRow) aoa.push(sec.totalRow.slice());
+        const totalRowIdx = sec.totalRow ? aoa.length - 1 : -1;
+        // For sections with formula sub-rows, every odd data row (relative to data start) is a formula row
+        const formulaSubRows = !!sec.formulaSubRows;
+        const dataStartIdx = headerRowIdx + 1;
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const range = XLSX.utils.decode_range(ws['!ref']);
+
+        // Set column widths based on header length + a bit of padding
+        ws['!cols'] = sec.columns.map((c, i) => {
+            const maxRowLen = Math.max(
+                String(c).length,
+                ...aoa.slice(headerRowIdx + 1).map(r => String((r[i] === null || r[i] === undefined) ? '' : r[i]).length)
+            );
+            return { wch: Math.min(Math.max(maxRowLen + 2, 10), 40) };
+        });
+
+        // Style the title row (row 0)
+        const titleAddr = XLSX.utils.encode_cell({ r: 0, c: 0 });
+        if (ws[titleAddr]) {
+            ws[titleAddr].s = {
+                font: { bold: true, sz: 14, color: { rgb: '1D4ED8' } },
+                alignment: { horizontal: 'left' }
+            };
+        }
+        // Merge title across the columns for readability
+        if (sec.columns.length > 1) {
+            ws['!merges'] = ws['!merges'] || [];
+            ws['!merges'].push({ s: {r:0, c:0}, e: {r:0, c: sec.columns.length - 1} });
+            if (sec.description) {
+                ws['!merges'].push({ s: {r:1, c:0}, e: {r:1, c: sec.columns.length - 1} });
+            }
+        }
+
+        // Header row styling + number formatting on data rows
+        for (let col = range.s.c; col <= range.e.c; col++) {
+            // header cell
+            const hAddr = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
+            if (ws[hAddr]) {
+                ws[hAddr].s = {
+                    font: { bold: true, color: { rgb: '0F172A' } },
+                    fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+                    border: {
+                        top:    { style: 'thin', color: { rgb: '94A3B8' } },
+                        bottom: { style: 'medium', color: { rgb: '0F172A' } },
+                        left:   { style: 'thin', color: { rgb: '94A3B8' } },
+                        right:  { style: 'thin', color: { rgb: '94A3B8' } }
+                    },
+                    alignment: { horizontal: col === 0 ? 'left' : 'right', vertical: 'center', wrapText: true }
+                };
+            }
+
+            // numeric formatting + light borders for data rows + total row
+            const isNumericCol = (sec.numericCols || []).includes(col);
+            for (let row = headerRowIdx + 1; row <= range.e.r; row++) {
+                const addr = XLSX.utils.encode_cell({ r: row, c: col });
+                if (!ws[addr]) continue;
+                const isTotal = (row === totalRowIdx);
+                // Detect formula sub-rows (every other row inside data block, starting with second row)
+                const isFormulaSubRow = formulaSubRows && (((row - dataStartIdx) % 2) === 1);
+                if (isNumericCol && typeof ws[addr].v === 'number') {
+                    ws[addr].t = 'n';
+                    ws[addr].z = '#,##0.0000';
+                }
+                ws[addr].s = {
+                    font: isTotal ? { bold: true } : (isFormulaSubRow ? { italic: true, sz: 10, color: { rgb: '64748B' } } : { }),
+                    fill: isTotal ? { patternType:'solid', fgColor:{rgb:'DBEAFE'} }
+                          : (isFormulaSubRow ? { patternType:'solid', fgColor:{rgb:'F8FAFC'} } : undefined),
+                    border: {
+                        top:    { style: 'thin', color: { rgb: 'CBD5E1' } },
+                        bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+                        left:   { style: 'thin', color: { rgb: 'CBD5E1' } },
+                        right:  { style: 'thin', color: { rgb: 'CBD5E1' } }
+                    },
+                    alignment: { horizontal: col === 0 ? 'left' : 'right', vertical: 'center', wrapText: true }
+                };
+            }
+        }
+
+        // Autofilter on header row (renders header dropdowns when opened in Excel)
+        ws['!autofilter'] = { ref: XLSX.utils.encode_range({s:{r:headerRowIdx, c:0}, e:{r: range.e.r, c: range.e.c}}) };
+
+        // Sheet name (≤31 chars, unique)
+        let name = (sec.sheetName || sec.title).replace(/[\\/?*\[\]]/g, ' ').substring(0, 31).trim();
+        let suffix = 2;
+        const baseName = name;
+        while (usedNames.has(name.toLowerCase())) {
+            const tail = ` (${suffix++})`;
+            name = baseName.substring(0, 31 - tail.length) + tail;
+        }
+        usedNames.add(name.toLowerCase());
+
+        XLSX.utils.book_append_sheet(wb, ws, name);
+    }
+
+    XLSX.writeFile(wb, `${data.filenameStem}.xlsx`);
+}
+
+// ─── Utility: trigger blob download ─────────────────────────────────
+function _saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
 
 </script>
 
 <!-- ==================== CSS STYLES ==================== -->
 <style>
+
+/* === Export dropdown menu === */
+.export-opt:hover { background: var(--bg) !important; color: var(--primary) !important; }
+.export-dropdown { animation: dropdownIn 0.12s ease-out; }
+@keyframes dropdownIn { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: translateY(0); } }
 
 /* === CSS Custom Properties (Design Tokens) === */
 /* These variables define the color palette and common values used throughout the dashboard */
@@ -475,7 +963,7 @@ tr:hover td { background: #f8fafc; }                               /* Light high
 <div id="tab-simulate" class="tab-content">
     <div class="section-title">Run Simulation</div>                      <!-- Section header -->
     <div class="card">
-        <p style="margin-bottom:12px;color:var(--text-sec)">Run a full year (365 days, 8760 hours) P2P energy sharing simulation. PV Flow: PV DC → Inverter (P<sub>AC</sub> = P<sub>DC</sub> × η) → Load/Battery. P2P Logic: PV priority → Battery (stops at 20% SoC) → P2P pool (SoC threshold) → Grid. Each household has independent demand variation. Battery sharing is capped daily per household's assigned %.</p> <!-- Description text -->
+        <p style="margin-bottom:12px;color:var(--text-sec)">Run a full year (365 days, 8760 hours) P2P energy sharing simulation. PV Flow: PV DC → Inverter (P<sub>AC</sub> = P<sub>DC</sub> × η) → Load/Battery. P2P Logic: PV priority → Battery (stops at 20% SoC) → P2P pool (SoC threshold) → Grid. Each household uses its own deterministic load profile (no stochastic variability — fully reproducible). Batteries start at 100% SoC. Charge/discharge rate fixed at 0.5 C. Battery sharing is capped daily per household's assigned %.</p> <!-- Description text -->
         <div class="sim-controls">                                       <!-- Row containing run button and progress text -->
             <button class="btn btn-primary" id="btn-run" onclick="runSimulation()">Run Simulation</button> <!-- Main simulation trigger button -->
             <span id="sim-progress-text" style="font-size:13px;color:var(--text-sec)"></span> <!-- Shows percentage during simulation -->
@@ -494,12 +982,30 @@ tr:hover td { background: #f8fafc; }                               /* Light high
         <div class="section-title">Summary</div>                        <!-- Summary statistics section -->
         <div class="grid-4" id="summary-cards" style="margin-bottom:24px"></div> <!-- 4 summary cards populated by JavaScript (P2P shared, LCOE, Grid, Self-sufficiency) -->
 
-        <!-- Export PDF button -->
+        <!-- Export menu: PDF / DOCX / XLSX -->
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-            <button onclick="exportReportsPDF()" id="btn-export-pdf"
-                style="display:flex;align-items:center;gap:8px;padding:9px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
-                ⬇ Export as PDF
-            </button>
+            <div class="export-menu" style="position:relative;display:inline-block">
+                <button id="btn-export-reports" type="button"
+                    onclick="toggleExportMenu('reports')"
+                    style="display:flex;align-items:center;gap:8px;padding:9px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+                    ⬇ Export <span style="margin-left:4px;font-size:10px">▾</span>
+                </button>
+                <div id="export-menu-reports" class="export-dropdown"
+                     style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);overflow:hidden;z-index:50;min-width:160px">
+                    <button type="button" onclick="exportReports('pdf')"  class="export-opt"
+                        style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer">
+                        📄 PDF
+                    </button>
+                    <button type="button" onclick="exportReports('docx')" class="export-opt"
+                        style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                        📝 DOCX
+                    </button>
+                    <button type="button" onclick="exportReports('xlsx')" class="export-opt"
+                        style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                        📊 XLSX
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="section-title">Charts</div>                         <!-- Charts section -->
@@ -535,6 +1041,48 @@ tr:hover td { background: #f8fafc; }                               /* Light high
                     Step-by-step derivation of LCOE w/ P2P and w/o P2P for each household.
                 </p>
                 <div id="lcoe-breakdown"></div>
+            </div>
+        </div>
+
+        <!-- Detailed Computations Section — daily 24-hour computation breakdown — collapsed by default -->
+        <div style="margin-top:18px">
+            <div onclick="const b=document.getElementById('detailed-comp-body');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.dc-arrow').textContent=open?'▼':'▲';if(!open){renderDetailedComputations();}"
+                 style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 16px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;user-select:none">
+                <span style="font-size:14px;font-weight:700;color:var(--text)">Detailed Computations</span>
+                <span class="dc-arrow" style="font-size:12px;color:var(--text-sec)">▼</span>
+            </div>
+            <div id="detailed-comp-body" style="display:none;margin-top:10px">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+                    <p style="font-size:13px;color:var(--text-sec);margin:0;flex:1;min-width:280px">
+                        Step-by-step 24-hour energy computation for each household on the selected day.
+                        Format mirrors the <em>One-Day Hourly Energy Computation</em> table in the thesis calculations.
+                        Use this to trace how PV direct use, battery charge/discharge, P2P sharing, grid purchases,
+                        and SoC are computed on an hour-by-hour basis.
+                    </p>
+                    <div class="export-menu" style="position:relative;display:inline-block">
+                        <button id="btn-export-dc" type="button"
+                            onclick="toggleExportMenu('dc')"
+                            style="display:flex;align-items:center;gap:8px;padding:9px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+                            ⬇ Export <span style="margin-left:4px;font-size:10px">▾</span>
+                        </button>
+                        <div id="export-menu-dc" class="export-dropdown"
+                             style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);overflow:hidden;z-index:50;min-width:160px">
+                            <button type="button" onclick="exportDetailedComputations('pdf')"  class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer">
+                                📄 PDF
+                            </button>
+                            <button type="button" onclick="exportDetailedComputations('docx')" class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                                📝 DOCX
+                            </button>
+                            <button type="button" onclick="exportDetailedComputations('xlsx')" class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                                📊 XLSX
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="detailed-comp"></div>
             </div>
         </div>
     </div>
@@ -2949,15 +3497,15 @@ const DEFAULT_EQUIP = {
 };
 // Each household has its own fully independent equip object — values are NOT shared.
 const DEFAULT_HH = [
-    { name:'House 1', pv:2.5, battCount:1, inverterCap:3, ws:3.8, battSharePct:0.75, active:true,
+    { name:'House 1', pv:2.5, battCount:1, inverterCap:3, ws:3.8, battSharePct:2/3, active:true,
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:18.8,
                inverterRatedCap:3, inverterEff:90, inverterCost:75000, inverterReplaceCost:60000, inverterOM:1000, inverterLifetime:10 } },
-    { name:'House 2', pv:2.5, battCount:2, inverterCap:3, ws:5, battSharePct:1.0, active:true,
+    { name:'House 2', pv:2.5, battCount:2, inverterCap:3, ws:5.0, battSharePct:1.0, active:true,
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:20,
                inverterRatedCap:3, inverterEff:90, inverterCost:75000, inverterReplaceCost:60000, inverterOM:1000, inverterLifetime:10 } },
-    { name:'House 3', pv:3.5, battCount:2, inverterCap:3, ws:3.6, battSharePct:0.75, active:true,
+    { name:'House 3', pv:3.5, battCount:2, inverterCap:3, ws:3.6, battSharePct:2/3, active:true,
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:19.2,
                inverterRatedCap:3, inverterEff:90, inverterCost:75000, inverterReplaceCost:60000, inverterOM:1000, inverterLifetime:10 } },
@@ -2965,11 +3513,11 @@ const DEFAULT_HH = [
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:20.8,
                inverterRatedCap:8, inverterEff:96, inverterCost:360000, inverterReplaceCost:330000, inverterOM:1000, inverterLifetime:10 } },
-    { name:'House 5', pv:5, battCount:5, inverterCap:4, ws:2.8, battSharePct:0.50, active:true,
+    { name:'House 5', pv:5, battCount:5, inverterCap:4, ws:2.8, battSharePct:2/3, active:true,
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:20.8,
                inverterRatedCap:4, inverterEff:96, inverterCost:145000, inverterReplaceCost:130000, inverterOM:1000, inverterLifetime:10 } },
-    { name:'House 6', pv:7, battCount:4, inverterCap:5.5, ws:2.4, battSharePct:0.25, active:true,
+    { name:'House 6', pv:7, battCount:4, inverterCap:5.5, ws:2.4, battSharePct:1/3, active:true,
       equip: { pvCapPerPanel:0.3, pvCost:9500, pvReplaceCost:8000, pvOM:100, pvLifetime:25,
                battCapPerUnit:3.28, battCost:135500, battReplaceCost:120000, battOM:800, battLifetime:20.7,
                inverterRatedCap:5.5, inverterEff:95.8, inverterCost:220000, inverterReplaceCost:200000, inverterOM:1000, inverterLifetime:10 } },
@@ -3029,7 +3577,7 @@ function getGlobalConfig() {
         lifetime: +document.getElementById('cfg-lifetime').value,
         discountRate: +document.getElementById('cfg-discountRate').value / 100,
         inflationRate: +document.getElementById('cfg-inflationRate').value / 100,
-        deterministicDemand: false,
+        // Stochastic variability removed — simulation is fully deterministic.
         // Fixed battery parameters
         chargeEff: 0.922,
         dischargeEff: 0.922,
@@ -3102,6 +3650,41 @@ function simulate(hhConfigs, cfg, progressCb) {
     const maxRate = battCap.map(c => c * cfg.cRate);                      // Maximum charge/discharge rate per hour for each household in kW
     const soc = battCap.map(c => c * 1.0);                                // Initial State of Charge: start each battery at 100% full
 
+    // ===== DAILY BREAKDOWN CAPTURE =====
+    // Captures full per-hour, per-house computation trace for the entire 365 days, so the
+    // Reports tab can render the step-by-step "Hourly Energy Computation" table that mirrors
+    // the format used in the thesis calculations PDF. Stored as: dailyBreakdown[dayOfYear][hr][i] = {…}
+    const dailyBreakdown = Array.from({length: 365}, () =>
+        Array.from({length: 24}, () => new Array(N).fill(null))
+    );
+
+    // Per-hour P2P metadata: { pool, allocOrder: [{idx, requested, received, poolBefore, poolAfter}],
+    //                          shareRatio, suppliers: [{idx, offer, shared}] }
+    // Used by the Reports tab to render the proportional-allocation step-by-step calculation.
+    const dailyP2PMeta = Array.from({length: 365}, () =>
+        new Array(24).fill(null)
+    );
+
+    // Per-house, per-day rolling daily-shared total (frozen at the time of each hour's P2P phase)
+    // so the supplier-offer "DailyRemaining" line can be reconstructed exactly.
+    const dailySharedAtP2P = Array.from({length: 365}, () =>
+        Array.from({length: 24}, () => new Array(N).fill(0))
+    );
+
+    // Constants exposed for the breakdown UI (don't change across the year)
+    const breakdownConsts = {
+        battCap:   battCap.slice(),
+        usableCap: usableCap.slice(),
+        minSoc:    minSoc.slice(),
+        maxRate:   maxRate.slice(),
+        battSharePct: hhConfigs.map(h => h.battSharePct),
+        chargeEff:    cfg.chargeEff,
+        dischargeEff: cfg.dischargeEff,
+        cRate:        cfg.cRate,
+        dod:          cfg.dod,
+        gridPrice:    cfg.gridPrice
+    };
+
     // Initialize results accumulators for each household
     // These accumulate totals across the entire year of simulation
     const res = hhConfigs.map((h, i) => ({
@@ -3144,24 +3727,10 @@ function simulate(hhConfigs, cfg, progressCb) {
     for (let m = 0; m < 12; m++) {                                        // Loop through each month (0=Jan to 11=Dec)
         for (let d = 0; d < DAYS_IN_MONTH[m]; d++) {                      // Loop through each day of the month
 
-            // Randomly assign demand type for each household independently
-            // Each household has its own demand variation parameters (per-household, not global)
-            const mult = [];                                              // Demand multiplier array, one per household
+            // Deterministic mode: each household uses base load profile directly (mult=1.0).
+            // Stochastic day-to-day variability has been removed for reproducibility.
+            const mult = new Array(N).fill(1.0);
             const dailyBattShared = new Array(N).fill(0);                 // Track daily battery energy shared per household (reset each day)
-            for (let i = 0; i < N; i++) {                                 // For each household
-                if (cfg.deterministicDemand) {                            // DETERMINISTIC MODE: mult=1.0, no randomness — mirrors HOMER's fixed load profile
-                    mult.push(1.0);
-                } else {                                                   // STOCHASTIC MODE: HOMER-matched day-to-day variability
-                    // HOMER setting: day-to-day variability std = 10%, normal distribution
-                    // Box-Muller transform: two uniform [0,1] → one standard normal N(0,1)
-                    const u1 = Math.max(1e-10, rng.next());               // Uniform [0,1], clamped away from 0 to avoid log(0)
-                    const u2 = rng.next();                                 // Uniform [0,1]
-                    const stdNormal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); // N(0,1)
-                    // Daily multiplier: mean=1.0, std=10% — matches HOMER's day-to-day variability setting
-                    // Clamped to [0.1, 3.0] to prevent physically unreasonable demand values
-                    mult.push(Math.min(3.0, Math.max(0.1, 1.0 + 0.10 * stdNormal)));
-                }
-            }
 
             // ===== HOURLY LOOP: simulate each hour of the day =====
             for (let hr = 0; hr < 24; hr++) {                            // Loop through each hour (0-23)
@@ -3170,20 +3739,15 @@ function simulate(hhConfigs, cfg, progressCb) {
                 // Each household independently uses its own PV and battery
                 const hourState = [];                                     // Array to track each household's state this hour
                 for (let i = 0; i < N; i++) {                             // For each household
-                    // HOMER-style demand: daily mult × hourly timestep variability (std=20%, normal dist)
-                    // Box-Muller transform to generate normal random from uniform RNG
-                    let hourMult = 1.0;
-                    if (!cfg.deterministicDemand) {
-                        const u1 = Math.max(1e-10, rng.next());           // Uniform [0,1] — clamped away from 0
-                        const u2 = rng.next();                            // Uniform [0,1]
-                        const stdNormal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); // Standard normal N(0,1)
-                        hourMult = Math.max(0.1, 1.0 + 0.20 * stdNormal); // Timestep variability: mean=1, std=20%, clamped > 0
-                    }
+                    // Deterministic mode: no per-hour stochastic multiplier (always 1.0).
+                    const hourMult = 1.0;
                     const origIdx = hhConfigs[i]._origIdx ?? i;            // Original household index for loadData/PV lookup
                     const demand = Math.max(0, loadData[origIdx][hr][m] * mult[i] * hourMult); // Base load × daily mult × hourly mult
                     const pvDC = getPVOutput(origIdx, dayOfYear, hr, pvCap[i]); // Look up HOMER hourly PV, scaled to this household's configured kW
                     const pvGen = Math.min(pvDC, invCap[i]);              // Clip to inverter capacity (no invEff multiply — CSV values are already AC output)
+                    const socBefore = soc[i];                             // Snapshot SoC before any dispatch this hour (for breakdown table)
                     let pvDirect = 0, battCharged = 0, battUsed = 0, excess = 0, deficit = 0; // Initialize energy flow variables
+                    let phaseLabel = 'Battery';                           // Will be 'Charge' if PV>=demand & space remains, 'Battery' if discharging, 'Deficit' if shortfall
 
                     res[i].totalDemand += demand;                         // Accumulate total annual demand
                     res[i].totalPV += pvGen;                              // Accumulate total annual PV generation
@@ -3207,6 +3771,7 @@ function simulate(hhConfigs, cfg, progressCb) {
                         // PV surplus is never shared via P2P — only battery energy is shared
                         excess = rem;                                     // post-battery surplus → grid export in Phase 3
                         res[i].gridExportedNoP2P += rem;                  // No-P2P: all post-battery surplus would go to grid
+                        phaseLabel = 'Charge';                            // PV-surplus hour: battery is charging (or full → exporting)
                     } else {                                              // CASE 2: PV generates LESS than demand
                         pvDirect = pvGen;                                 // Use all available PV to partially meet demand
                         let need = demand - pvGen;                        // Remaining energy needed after PV
@@ -3222,10 +3787,11 @@ function simulate(hhConfigs, cfg, progressCb) {
                         }
                         deficit = need;                                   // Any remaining need is the deficit (must come from P2P or grid)
                         res[i].gridPurchasedNoP2P += need;                // No-P2P: all post-battery deficit comes from grid
+                        phaseLabel = need > 1e-9 ? 'Deficit' : 'Battery'; // Battery covered fully → 'Battery'; otherwise → 'Deficit' (P2P/grid needed)
                     }
 
                     // Store this household's state for P2P sharing phase
-                    hourState.push({ demand, pvGen, pvDirect, battUsed, battCharged, excess, deficit, idx: i });
+                    hourState.push({ demand, pvGen, pvDirect, battUsed, battCharged, excess, deficit, idx: i, socBefore, phaseLabel });
                     res[i].pvDirect += pvDirect;                          // Accumulate annual PV direct use
                     res[i].batteryUsed += battUsed;                       // Accumulate annual battery usage
                     res[i].monthly[m].pvDirect += pvDirect;               // Accumulate monthly PV direct use
@@ -3235,6 +3801,14 @@ function simulate(hhConfigs, cfg, progressCb) {
                 // ===== PHASE 2: P2P (Peer-to-Peer) Energy Sharing =====
                 // Only battery energy is shared P2P. PV surplus goes directly to grid export in Phase 3.
                 const battSuppliers = [], demanders = [];
+                const p2pInThisHour  = new Array(N).fill(0);              // Per-house P2P energy received this hour (for breakdown table)
+                const p2pOutThisHour = new Array(N).fill(0);              // Per-house P2P energy shared this hour (for breakdown table)
+
+                // Snapshot dailyBattShared BEFORE this hour's P2P phase modifies it — allows
+                // the supplier-offer derivation in the breakdown UI to reproduce DailyRemaining.
+                if (dayOfYear < 365) {
+                    for (let i = 0; i < N; i++) dailySharedAtP2P[dayOfYear][hr][i] = dailyBattShared[i];
+                }
 
                 // Identify demanders: households with remaining deficit after own PV and battery
                 for (const s of hourState) {
@@ -3244,6 +3818,9 @@ function simulate(hhConfigs, cfg, progressCb) {
 
                 // Rank deficit households by priority: highest energy need first
                 demanders.sort((a, b) => b.amount - a.amount);
+
+                // Suppliers metadata (one entry per eligible supplier, with the offer terms)
+                const suppliersMeta = [];
 
                 // --- BATTERY SHARING: Identify battery suppliers and allocate to demanders ---
                 for (const s of hourState) {
@@ -3255,21 +3832,43 @@ function simulate(hhConfigs, cfg, progressCb) {
                     if (soc[s.idx] > minSoc[s.idx] && dailyRemaining > 0) {
                         const availableForShare = Math.max(0, soc[s.idx] - minSoc[s.idx]); // kWh available above 20% floor
                         const maxShareable = availableForShare * cfg.dischargeEff;          // max AC energy deliverable without breaching floor
-                        const battOffer = Math.min(
-                            maxShareable,                                  // never breach 20% SoC floor
-                            maxRate[s.idx] * 0.5,                         // half C-rate per hour limit
-                            dailyRemaining * cfg.dischargeEff             // daily cap remaining
-                        );
-                        if (battOffer > 0) battSuppliers.push({idx: s.idx, amount: battOffer});
+                        const halfCRate = maxRate[s.idx] * 0.5;
+                        const dailyLimit = dailyRemaining * cfg.dischargeEff;
+                        const battOffer = Math.min(maxShareable, halfCRate, dailyLimit);
+                        if (battOffer > 0) {
+                            battSuppliers.push({idx: s.idx, amount: battOffer});
+                            suppliersMeta.push({
+                                idx: s.idx,
+                                hhUsableCap, dailyCap, dailyRemaining,
+                                availableForShare, maxShareable, halfCRate, dailyLimit,
+                                offer: battOffer, shared: 0   // shared filled in below
+                            });
+                        }
                     }
                 }
 
                 let totalBattSupply = battSuppliers.reduce((sum, s) => sum + s.amount, 0);
                 let remainingBattSupply = totalBattSupply;
 
+                // Allocation order metadata (priority — highest deficit first)
+                const allocOrderMeta = demanders.map(d => ({
+                    idx: d.idx, requested: d.amount, received: 0,
+                    poolBefore: 0, poolAfter: 0
+                }));
+
                 if (remainingBattSupply > 0 && demanders.length > 0) {
+                    let aoIdx = 0;
                     for (const d of demanders) {
-                        if (remainingBattSupply <= 0) break;
+                        if (remainingBattSupply <= 0) {
+                            // demander not served — record poolBefore/After=0 received=0
+                            if (allocOrderMeta[aoIdx]) {
+                                allocOrderMeta[aoIdx].poolBefore = remainingBattSupply;
+                                allocOrderMeta[aoIdx].poolAfter  = remainingBattSupply;
+                            }
+                            aoIdx++;
+                            continue;
+                        }
+                        const poolBefore = remainingBattSupply;
                         const received = Math.min(d.amount, remainingBattSupply);
                         d.amount -= received;
                         const hs = hourState.find(x => x.idx === d.idx);
@@ -3277,7 +3876,14 @@ function simulate(hhConfigs, cfg, progressCb) {
                         res[d.idx].p2pReceived += received;
                         res[d.idx].p2pCost += received * cfg.p2pPrice;
                         res[d.idx].monthly[m].p2pIn += received;
+                        p2pInThisHour[d.idx] += received;                  // Track per-house received this hour
                         remainingBattSupply -= received;
+                        if (allocOrderMeta[aoIdx]) {
+                            allocOrderMeta[aoIdx].received   = received;
+                            allocOrderMeta[aoIdx].poolBefore = poolBefore;
+                            allocOrderMeta[aoIdx].poolAfter  = remainingBattSupply;
+                        }
+                        aoIdx++;
                     }
                     const battUsedTotal = totalBattSupply - remainingBattSupply;
                     if (battUsedTotal > 0) {
@@ -3288,13 +3894,40 @@ function simulate(hhConfigs, cfg, progressCb) {
                             res[s.idx].p2pSharedBatt += shared;
                             res[s.idx].p2pRevenue += shared * cfg.p2pPrice;
                             res[s.idx].monthly[m].p2pOut += shared;
+                            p2pOutThisHour[s.idx] += shared;               // Track per-house shared this hour
                             const socDeduction = Math.min(shared / cfg.dischargeEff,
                                 Math.max(0, soc[s.idx] - minSoc[s.idx])); // never go below 20%
                             soc[s.idx] -= socDeduction;
                             soc[s.idx] = Math.max(minSoc[s.idx], soc[s.idx]); // hard floor clamp
                             dailyBattShared[s.idx] += shared / cfg.dischargeEff;
+                            // Record actual shared amount in suppliersMeta
+                            const meta = suppliersMeta.find(m => m.idx === s.idx);
+                            if (meta) meta.shared = shared;
+                        }
+                        // Save P2P metadata for this hour
+                        if (dayOfYear < 365) {
+                            dailyP2PMeta[dayOfYear][hr] = {
+                                pool:        totalBattSupply,
+                                shareRatio:  battUseRatio,
+                                allocOrder:  allocOrderMeta,
+                                suppliers:   suppliersMeta
+                            };
+                        }
+                    } else {
+                        // No actual P2P flow even though suppliers existed
+                        if (dayOfYear < 365 && (suppliersMeta.length > 0 || allocOrderMeta.length > 0)) {
+                            dailyP2PMeta[dayOfYear][hr] = {
+                                pool: totalBattSupply, shareRatio: 0,
+                                allocOrder: allocOrderMeta, suppliers: suppliersMeta
+                            };
                         }
                     }
+                } else if (dayOfYear < 365 && (suppliersMeta.length > 0 || allocOrderMeta.length > 0)) {
+                    // Save metadata even when no allocation occurs (e.g., no demanders, or empty pool)
+                    dailyP2PMeta[dayOfYear][hr] = {
+                        pool: totalBattSupply, shareRatio: 0,
+                        allocOrder: allocOrderMeta, suppliers: suppliersMeta
+                    };
                 }
 
                 // ===== PHASE 3: Grid Interaction =====
@@ -3333,6 +3966,27 @@ function simulate(hhConfigs, cfg, progressCb) {
                     mh.gridIn += gridThisHour;
                     mh.socSum += soc[s.idx];                               // Accumulate SoC for hourly average
                     mh.count++;
+
+                    // ===== DAILY BREAKDOWN CAPTURE: write per-house, per-hour record =====
+                    // This is the snapshot used by the Reports tab to build the step-by-step
+                    // 24-hour computation table that mirrors the format in the thesis PDF.
+                    if (dayOfYear < 365) {
+                        dailyBreakdown[dayOfYear][hr][s.idx] = {
+                            demand:      s.demand,
+                            pvGen:       s.pvGen,
+                            socBefore:   s.socBefore,
+                            phase:       s.phaseLabel,
+                            pvDirect:    s.pvDirect,
+                            battCharged: s.battCharged,
+                            battUsed:    s.battUsed,
+                            deficit:     s.deficit,            // post-Phase-2 deficit (after P2P)
+                            p2pIn:       p2pInThisHour[s.idx],
+                            p2pOut:      p2pOutThisHour[s.idx],
+                            socAfter:    soc[s.idx],
+                            gridBuy:     s.deficit,            // anything still left = grid buy
+                            gridExport:  s.excess              // post-battery surplus → grid
+                        };
+                    }
                 }
             } // End of hourly loop
 
@@ -3514,7 +4168,8 @@ function simulate(hhConfigs, cfg, progressCb) {
     const avgSelfSuff = res.reduce((s, r_item) => s + r_item.selfSufficiency, 0) / N; // Average self-sufficiency across all households (%)
 
     // Return complete results object
-    return { households: res, totalP2PShared, avgLCOE, totalGrid, avgSelfSuff, cfg };
+    return { households: res, totalP2PShared, avgLCOE, totalGrid, avgSelfSuff, cfg,
+             dailyBreakdown, dailyP2PMeta, dailySharedAtP2P, breakdownConsts };
 }
 
 // =====================================================================
@@ -5250,6 +5905,934 @@ function showLCOEPanel(idx) {
             </span>
         </div>
         ${buildLCOEPanel(h)}`;
+}
+
+// =====================================================================
+// DETAILED COMPUTATIONS — 24-hour step-by-step breakdown
+// Mirrors the "One-Day Hourly Energy Computation" table in the thesis
+// calculations PDF. Pulls per-hour, per-house records from
+// simResults.dailyBreakdown[dayOfYear][hour][hh] which is populated
+// during simulate().
+// =====================================================================
+
+// Day-of-year (0..364) → human label "Mon DD"
+const _DC_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const _DC_DIM    = [31,28,31,30,31,30,31,31,30,31,30,31];
+function _dcDayLabel(doy) {
+    let d = doy, m = 0;
+    while (m < 12 && d >= _DC_DIM[m]) { d -= _DC_DIM[m]; m++; }
+    return `${_DC_MONTHS[m]} ${d + 1}`;
+}
+
+// Compact 4-decimal formatter for kWh values (matches PDF style)
+function _dc4(v) {
+    if (v === null || v === undefined || !isFinite(v)) return '—';
+    return (Math.abs(v) < 1e-5 ? 0 : v).toFixed(4);
+}
+
+// Build the one P2P column entry — supplier (negative, "shr"), receiver (positive, "rcv"), or "—"
+function _dcP2P(rec) {
+    if (!rec) return '—';
+    if (rec.p2pIn > 1e-6)  return `+${rec.p2pIn.toFixed(4)} rcv`;
+    if (rec.p2pOut > 1e-6) return `−${rec.p2pOut.toFixed(4)} shr`;
+    return '—';
+}
+
+function renderDetailedComputations() {
+    const container = document.getElementById('detailed-comp');
+    if (!container || !simResults || !simResults.dailyBreakdown) {
+        if (container) container.innerHTML =
+            '<p style="color:var(--text-sec);font-size:13px">Run a simulation first to view the detailed computation table.</p>';
+        return;
+    }
+
+    const hhs = simResults.households;
+    const dayOptions = Array.from({length: 365}, (_, i) =>
+        `<option value="${i}">Day ${i + 1} — ${_dcDayLabel(i)}</option>`
+    ).join('');
+    const hourOptions = Array.from({length: 24}, (_, h) =>
+        `<option value="${h}">${String(h).padStart(2,'0')}:00</option>`
+    ).join('');
+
+    container.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+            <label style="font-size:13px;font-weight:600;color:var(--text-sec)">Select Day</label>
+            <select id="dc-day-select" onchange="renderDetailedTable(+this.value); renderStepByStep(+this.value, +document.getElementById('dc-hour-select').value);"
+                style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;min-width:200px">
+                ${dayOptions}
+            </select>
+            <span style="font-size:12px;color:var(--text-sec);margin-left:auto">
+                ${hhs.length} household${hhs.length === 1 ? '' : 's'} · 24 hours · all values in kWh
+            </span>
+        </div>
+        <div id="dc-table-host" style="overflow-x:auto"></div>
+        <div id="dc-summary-host" style="margin-top:18px"></div>
+
+        <!-- Section 6 — step-by-step substitution view, mirrors PDF section 6 -->
+        <div style="margin-top:28px;padding-top:20px;border-top:2px dashed var(--border)">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
+                <span style="font-size:14px;font-weight:700;color:var(--text)">
+                    Sample Detailed Step-by-Step Calculations
+                </span>
+                <label style="font-size:13px;font-weight:600;color:var(--text-sec);margin-left:18px">Hour</label>
+                <select id="dc-hour-select"
+                    onchange="renderStepByStep(+document.getElementById('dc-day-select').value, +this.value)"
+                    style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;min-width:120px">
+                    ${hourOptions}
+                </select>
+            </div>
+            <p style="font-size:12px;color:var(--text-sec);margin:6px 0 14px 0">
+                Full numerical substitution for the selected hour across all phases (Phase 1 — Own Dispatch, Phase 2 — P2P Battery Sharing, Phase 3 — Grid Interaction). Mirrors section 6 of the thesis PDF.
+            </p>
+            <div id="dc-step-host"></div>
+        </div>
+
+        <!-- Section 7 — Monthly Breakdown of Energy Sharing Process -->
+        <div style="margin-top:28px;padding-top:20px;border-top:2px dashed var(--border)">
+            <div onclick="const b=document.getElementById('mb-body');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.mb-arrow').textContent=open?'▼':'▲';if(!open){renderMonthlyBreakdown();}"
+                 style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 16px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;user-select:none">
+                <span style="font-size:14px;font-weight:700;color:var(--text)">Monthly Breakdown of Energy Sharing Process</span>
+                <span class="mb-arrow" style="font-size:12px;color:var(--text-sec)">▼</span>
+            </div>
+            <div id="mb-body" style="display:none;margin-top:12px">
+                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+                    <label style="font-size:13px;font-weight:600;color:var(--text-sec)">Household</label>
+                    <select id="mb-house-select"
+                        onchange="renderMonthlyBreakdown()"
+                        style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;min-width:140px">
+                        ${hhs.map((h, i) => `<option value="${i}">${h.name}</option>`).join('')}
+                    </select>
+                    <label style="font-size:13px;font-weight:600;color:var(--text-sec)">View</label>
+                    <select id="mb-view-select"
+                        onchange="renderMonthlyBreakdown()"
+                        style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;min-width:220px">
+                        <option value="monthly">Monthly Breakdown (12 Months)</option>
+                    </select>
+                    <!-- Export menu for Monthly Breakdown -->
+                    <div class="export-menu" style="position:relative;display:inline-block;margin-left:auto">
+                        <button id="btn-export-mb" type="button"
+                            onclick="toggleExportMenu('mb')"
+                            style="display:flex;align-items:center;gap:8px;padding:9px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+                            ⬇ Export <span style="margin-left:4px;font-size:10px">▾</span>
+                        </button>
+                        <div id="export-menu-mb" class="export-dropdown"
+                             style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);overflow:hidden;z-index:50;min-width:160px">
+                            <button type="button" onclick="exportMonthlyBreakdown('pdf')"  class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer">
+                                📄 PDF
+                            </button>
+                            <button type="button" onclick="exportMonthlyBreakdown('docx')" class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                                📝 DOCX
+                            </button>
+                            <button type="button" onclick="exportMonthlyBreakdown('xlsx')" class="export-opt"
+                                style="display:block;width:100%;padding:10px 18px;background:transparent;border:none;text-align:left;font-size:13px;color:var(--text);cursor:pointer;border-top:1px solid var(--border)">
+                                📊 XLSX
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="mb-host" style="overflow-x:auto"></div>
+                <p style="font-size:11.5px;color:var(--text-sec);margin-top:10px;font-style:italic">
+                    Italic rows show the formula used. <span style="color:#16a34a">Green=P2P Received</span> | <span style="color:#a855f7">Purple=P2P Shared</span> | <span style="color:#ea580c">Orange=Grid Buy</span> | <span style="color:#0284c7">Blue=Grid Export</span> | Annual=sum of 12 months.
+                </p>
+            </div>
+        </div>`;
+
+    renderDetailedTable(0);
+    renderStepByStep(0, 2);    // default to hour 2 (P2P-active hour, like PDF)
+}
+
+// ===== Step-by-step substitution renderer =====
+// Pulls from simResults.dailyBreakdown, dailyP2PMeta, dailySharedAtP2P, breakdownConsts
+// and reproduces the full algebraic derivation for the selected (day, hour).
+
+const _DC_LBL_W = 220;  // formula label column width
+
+// Row of "label = expression = value"
+function _dcEq(label, expr, value, opts) {
+    opts = opts || {};
+    const isResult = !!opts.result;
+    const valStyle = `font-weight:${isResult ? '700' : '600'};color:${isResult ? 'var(--primary)' : 'var(--text)'}`;
+    return `<div style="display:grid;grid-template-columns:${_DC_LBL_W}px 1fr auto;gap:10px;padding:4px 0;font-family:'SF Mono',Consolas,monospace;font-size:12.5px;line-height:1.55">
+        <div style="color:var(--text-sec)">${label}</div>
+        <div style="color:var(--text)">${expr}</div>
+        <div style="${valStyle}">${value}</div>
+    </div>`;
+}
+
+function _dcNote(text, color) {
+    color = color || 'var(--text-sec)';
+    return `<div style="font-size:12px;color:${color};font-style:italic;padding:2px 0 6px ${_DC_LBL_W + 10}px">${text}</div>`;
+}
+
+function _dcSubHeader(text, bg) {
+    bg = bg || 'linear-gradient(90deg,#2563eb,#3b82f6)';
+    return `<div style="background:${bg};color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;font-weight:700;margin:14px 0 10px 0">${text}</div>`;
+}
+
+function _dcHouseHeader(house, demand, pvGen, socBefore) {
+    return `<div style="font-weight:700;font-size:13.5px;color:var(--text);margin:12px 0 4px 0;padding:6px 0;border-bottom:1.5px solid var(--border)">
+        ${house.name}: PV=${pvGen.toFixed(4)} kWh, Demand=${demand.toFixed(4)} kWh, SoC=${socBefore.toFixed(4)} kWh
+    </div>`;
+}
+
+function _dcCaseLabel(text, color) {
+    color = color || '#dbeafe';
+    return `<div style="background:${color};padding:5px 12px;border-radius:4px;font-weight:700;font-size:12px;display:inline-block;margin:4px 0 6px 0;color:#1e3a8a">${text}</div>`;
+}
+
+function renderStepByStep(dayIdx, hr) {
+    const host = document.getElementById('dc-step-host');
+    if (!host || !simResults || !simResults.dailyBreakdown) return;
+
+    const hhs        = simResults.households;
+    const constsRaw  = simResults.breakdownConsts;
+    const dayData    = simResults.dailyBreakdown[dayIdx];
+    const p2pMeta    = simResults.dailyP2PMeta ? simResults.dailyP2PMeta[dayIdx][hr] : null;
+    const dailyShared = simResults.dailySharedAtP2P ? simResults.dailySharedAtP2P[dayIdx][hr] : null;
+
+    if (!dayData || !dayData[hr]) {
+        host.innerHTML = '<p style="color:var(--text-sec)">No data captured for this hour.</p>';
+        return;
+    }
+
+    const cfg     = simResults.cfg;
+    const ηc      = constsRaw.chargeEff;
+    const ηd      = constsRaw.dischargeEff;
+    const hourLbl = `${String(hr).padStart(2,'0')}:00`;
+
+    // Format helper for inline small expressions
+    const f = v => (Math.abs(v) < 1e-5 ? '0.0000' : v.toFixed(4));
+    const f2 = v => (Math.abs(v) < 1e-3 ? '0.00' : v.toFixed(2));
+
+    let html = '';
+
+    // Section heading
+    html += `<div style="background:linear-gradient(90deg,#0f766e,#14b8a6);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:700;margin-bottom:14px">
+        Hour ${hourLbl} — Step-by-Step Calculations (Day ${dayIdx + 1}, ${_dcDayLabel(dayIdx)})
+    </div>`;
+
+    // ===================== PHASE 1 — Own Dispatch =====================
+    html += _dcSubHeader('Phase 1 — Own Dispatch (per household)');
+
+    for (let i = 0; i < hhs.length; i++) {
+        const rec = dayData[hr][i];
+        if (!rec) continue;
+        const usable = constsRaw.usableCap[i];
+        const minSoc = constsRaw.minSoc[i];
+        const maxRt  = constsRaw.maxRate[i];
+        const D      = rec.demand;
+        const PV     = rec.pvGen;
+        const SoC    = rec.socBefore;
+
+        html += _dcHouseHeader(hhs[i], D, PV, SoC);
+
+        if (PV >= D) {
+            // ----- Case A: PV ≥ Demand → charge battery / export -----
+            html += _dcCaseLabel('Case A: PV ≥ Demand  →  Charge / Export', '#dcfce7');
+            const E_rem  = PV - D;
+            const space  = Math.max(0, usable - SoC);
+            const spaceOverη = space > 0 ? space / ηc : 0;
+            const candidates = [E_rem, maxRt, spaceOverη];
+            const E_charge = Math.min(...candidates);
+            const SoC_end_calc = SoC + E_charge * ηc;
+            const E_excess = E_rem - E_charge;
+
+            html += _dcEq('PV_direct',
+                `min(PV, Demand) = min(${f(PV)}, ${f(D)})`,
+                `${f(D)} kWh`);
+            html += _dcEq('E_rem (surplus)',
+                `PV − Demand = ${f(PV)} − ${f(D)}`,
+                `${f(E_rem)} kWh`);
+            html += _dcEq('Space (battery headroom)',
+                `Usable − SoC = ${f(usable)} − ${f(SoC)}`,
+                `${f(space)} kWh`);
+            html += _dcEq('MaxRate (0.5C)',
+                `0.5 × C = 0.5 × ${f(constsRaw.battCap[i])}`,
+                `${f(maxRt)} kWh/hr`);
+            html += _dcEq('E_charge',
+                `min(E_rem, MaxRate, Space/η_c) = min(${f(E_rem)}, ${f(maxRt)}, ${f(spaceOverη)})`,
+                `${f(E_charge)} kWh`,
+                {result:true});
+            html += _dcEq('SoC_end',
+                `SoC + E_charge × η_c = ${f(SoC)} + ${f(E_charge)} × ${ηc}`,
+                `${f(SoC_end_calc)} kWh`,
+                {result:true});
+            html += _dcEq('E_excess (→ grid export)',
+                `E_rem − E_charge = ${f(E_rem)} − ${f(E_charge)}`,
+                `${f(E_excess)} kWh`,
+                {result:true});
+        } else {
+            // ----- Case B: PV < Demand → discharge battery -----
+            html += _dcCaseLabel('Case B: PV < Demand  →  Discharge battery', '#dbeafe');
+            const E_need = D - PV;
+            const E_avail = Math.max(0, SoC - minSoc);
+            const candidates = [E_need, maxRt, E_avail];
+            const E_discharge = Math.min(...candidates);
+            const SoC_end_calc = Math.max(minSoc, SoC - E_discharge / ηd);
+            const E_deficit = E_need - E_discharge;
+
+            html += _dcEq('E_need',
+                `D − PV = ${f(D)} − ${f(PV)}`,
+                `${f(E_need)} kWh`);
+            html += _dcEq('E_avail',
+                `SoC − SoC_min = ${f(SoC)} − ${f(minSoc)}`,
+                `${f(E_avail)} kWh`);
+            html += _dcEq('MaxRate (0.5C)',
+                `0.5 × C = 0.5 × ${f(constsRaw.battCap[i])}`,
+                `${f(maxRt)} kWh/hr`);
+            html += _dcEq('E_discharge',
+                `min(E_need, MaxRate, E_avail) = min(${f(E_need)}, ${f(maxRt)}, ${f(E_avail)})`,
+                `${f(E_discharge)} kWh`,
+                {result:true});
+            html += _dcEq('SoC_end',
+                `max(SoC_min, SoC − E_dis/η_d) = max(${f(minSoc)}, ${f(SoC)} − ${f(E_discharge)}/${ηd})`,
+                `${f(SoC_end_calc)} kWh`,
+                {result:true});
+            html += _dcEq('E_deficit',
+                `E_need − E_discharge = ${f(E_need)} − ${f(E_discharge)}`,
+                `${f(E_deficit)} kWh`,
+                {result:true});
+        }
+    }
+
+    // ===================== PHASE 1 SUMMARY TABLE =====================
+    html += `<div style="margin-top:14px;font-weight:600;font-size:12px;color:var(--text-sec);text-transform:uppercase;letter-spacing:.4px">After Phase 1 at ${hourLbl}:</div>`;
+    html += '<table style="width:100%;border-collapse:collapse;font-family:\'SF Mono\',Consolas,monospace;font-size:11.5px;margin-top:6px;margin-bottom:10px">';
+    html += `<thead><tr style="background:var(--bg)">
+        <th style="padding:6px 8px;text-align:left;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">Household</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">Demand</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">PV Direct</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">Batt Charged</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">Batt Used</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">Deficit</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:2px solid var(--border);color:var(--text-sec);font-size:11px">SoC After Ph1</th>
+    </tr></thead><tbody>`;
+    for (let i = 0; i < hhs.length; i++) {
+        const r = dayData[hr][i];
+        if (!r) continue;
+        // SoC after Phase 1 (before P2P): rec.socAfter is post-everything.
+        // For phase-1-only, reverse the P2P SoC deduction:
+        // socAfterP1 = socAfter + (p2pOut/ηd)   (suppliers had SoC drained)
+        //            = socAfter − p2pIn would not affect SoC (receivers don't change SoC by P2P)
+        const socAfterP1 = r.socAfter + (r.p2pOut > 1e-9 ? r.p2pOut / ηd : 0);
+        // Rough deficit-pre-P2P = current deficit (what grid pays) + p2pIn (what was offset by P2P)
+        const deficitPreP2P = r.deficit + r.p2pIn;
+        html += `<tr>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:${hhs[i].color};font-weight:600">${hhs[i].name}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(r.demand)}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(r.pvDirect)}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(r.battCharged)}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(r.battUsed)}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(deficitPreP2P)}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right">${f(socAfterP1)}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+
+    // ===================== PHASE 2 — P2P Battery Sharing =====================
+    html += _dcSubHeader(`Phase 2 — P2P Battery Sharing at ${hourLbl}`, 'linear-gradient(90deg,#7c3aed,#a78bfa)');
+
+    if (!p2pMeta || (p2pMeta.suppliers.length === 0 && p2pMeta.allocOrder.length === 0)) {
+        html += '<p style="font-size:13px;color:var(--text-sec);font-style:italic;padding:8px 0">No P2P sharing this hour — either no household had a deficit, or no eligible suppliers (all batteries at SoC floor or daily cap exhausted).</p>';
+    } else {
+        const suppliers = p2pMeta.suppliers || [];
+        const demanders = p2pMeta.allocOrder || [];
+
+        // Demanders summary
+        if (demanders.length > 0) {
+            const demanderText = demanders.map(d => `${hhs[d.idx].name} (deficit=${f(d.requested)} kWh)`).join(', ');
+            html += `<div style="font-size:12.5px;color:var(--text);padding:4px 0 8px 0"><strong>Demanders:</strong> ${demanderText}</div>`;
+        }
+        // Suppliers summary
+        if (suppliers.length > 0) {
+            const suppText = suppliers.map(s => hhs[s.idx].name).join(', ');
+            html += `<div style="font-size:12.5px;color:var(--text);padding:4px 0 12px 0"><strong>Suppliers:</strong> ${suppText} (above SoC floor and within daily share cap)</div>`;
+        }
+
+        // Per-supplier offer calculation
+        for (const s of suppliers) {
+            const hh = hhs[s.idx];
+            const i  = s.idx;
+            const sharedNote = dailyShared ? dailyShared[i] : 0;
+            html += `<div style="font-weight:700;font-size:13px;color:var(--text);margin:14px 0 4px 0;padding:5px 12px;background:#faf5ff;border-left:3px solid #a78bfa">${hh.name} — Supplier Offer Calculation</div>`;
+
+            html += _dcEq('DailyCap',
+                `Usable × battSharePct = ${f(s.hhUsableCap)} × ${constsRaw.battSharePct[i].toFixed(4)}`,
+                `${f(s.dailyCap)} kWh`);
+            html += _dcEq('DailyRemaining',
+                `DailyCap − dailyShared = ${f(s.dailyCap)} − ${f(sharedNote)}`,
+                `${f(s.dailyRemaining)} kWh`);
+            html += _dcEq('Available above floor',
+                `SoC − SoC_min = ${f(s.availableForShare + constsRaw.minSoc[i])} − ${f(constsRaw.minSoc[i])}`,
+                `${f(s.availableForShare)} kWh`);
+            html += _dcEq('E_maxShare',
+                `Available × η_d = ${f(s.availableForShare)} × ${ηd}`,
+                `${f(s.maxShareable)} kWh`);
+            html += _dcEq('Half C-rate',
+                `0.5 × MaxRate = 0.5 × ${f(constsRaw.maxRate[i])}`,
+                `${f(s.halfCRate)} kWh`);
+            html += _dcEq('Daily limit',
+                `DailyRemaining × η_d = ${f(s.dailyRemaining)} × ${ηd}`,
+                `${f(s.dailyLimit)} kWh`);
+            html += _dcEq('E_offer',
+                `min(${f(s.maxShareable)}, ${f(s.halfCRate)}, ${f(s.dailyLimit)})`,
+                `${f(s.offer)} kWh`,
+                {result:true});
+        }
+
+        // Pool aggregation
+        const pool = p2pMeta.pool;
+        const sumExpr = suppliers.map(s => f(s.offer)).join(' + ');
+        html += `<div style="font-weight:700;font-size:13px;color:var(--text);margin:18px 0 4px 0;padding:5px 12px;background:#fef3c7;border-left:3px solid #f59e0b">Total P2P Pool</div>`;
+        html += _dcEq('Pool',
+            sumExpr || '0',
+            `${f(pool)} kWh`,
+            {result:true});
+
+        // Allocation
+        if (demanders.some(d => d.received > 1e-9)) {
+            html += `<div style="font-weight:700;font-size:13px;color:var(--text);margin:18px 0 4px 0;padding:5px 12px;background:#fef3c7;border-left:3px solid #f59e0b">Allocation (Priority — highest deficit first)</div>`;
+            for (const d of demanders) {
+                if (d.received <= 1e-9 && d.requested <= 1e-9) continue;
+                const hh = hhs[d.idx];
+                html += `<div style="font-size:12.5px;color:var(--text);padding:6px 0 2px 0;font-weight:600">${hh.name} (deficit=${f(d.requested)}):</div>`;
+                html += _dcEq('Received',
+                    `min(deficit, pool) = min(${f(d.requested)}, ${f(d.poolBefore)})`,
+                    `${f(d.received)} kWh`);
+                html += _dcEq('Pool remaining',
+                    `${f(d.poolBefore)} − ${f(d.received)}`,
+                    `${f(d.poolAfter)} kWh`);
+            }
+
+            // Proportional supplier deduction
+            const totalUsed = suppliers.reduce((s,x) => s + x.shared, 0);
+            const ratio = p2pMeta.shareRatio;
+            html += `<div style="font-weight:700;font-size:13px;color:var(--text);margin:18px 0 4px 0;padding:5px 12px;background:#fef3c7;border-left:3px solid #f59e0b">Supplier SoC Deduction (proportional)</div>`;
+            const usedExpr = demanders.filter(d => d.received > 1e-9).map(d => f(d.received)).join(' + ');
+            html += _dcEq('Total used',
+                usedExpr || '0',
+                `${f(totalUsed)} kWh`);
+            html += _dcEq('Use ratio',
+                `Total used / Pool = ${f(totalUsed)} / ${f(pool)}`,
+                ratio.toFixed(5));
+            for (const s of suppliers) {
+                if (s.shared <= 1e-9) continue;
+                const hh = hhs[s.idx];
+                const i  = s.idx;
+                const rec = dayData[hr][i];
+                const socBeforeP2P = rec.socAfter + s.shared / ηd;  // reverse the deduction
+                const dedSoc = s.shared / ηd;
+                html += _dcEq(`${hh.name} deduction`,
+                    `${f(s.offer)} × ${ratio.toFixed(5)}`,
+                    `${f(s.shared)} kWh shared`);
+                html += _dcEq(`→ new SoC`,
+                    `${f(socBeforeP2P)} − ${f(s.shared)}/${ηd}`,
+                    `${f(rec.socAfter)} kWh`,
+                    {result:true});
+            }
+        } else {
+            html += '<p style="font-size:12.5px;color:var(--text-sec);font-style:italic;padding:6px 0">Pool exists but no demanders → no allocation this hour.</p>';
+        }
+    }
+
+    // ===================== PHASE 3 — Grid Interaction =====================
+    html += _dcSubHeader(`Phase 3 — Grid Interaction at ${hourLbl}`, 'linear-gradient(90deg,#dc2626,#f87171)');
+    html += `<div style="font-size:12.5px;color:var(--text);padding:4px 0 10px 0">Grid purchase = max(0, post-P2P deficit) · Grid export = post-battery surplus</div>`;
+    let totalGridBuy = 0, totalGridExp = 0;
+    for (let i = 0; i < hhs.length; i++) {
+        const r = dayData[hr][i];
+        if (!r) continue;
+        totalGridBuy += r.gridBuy;
+        totalGridExp += r.gridExport;
+        if (r.gridBuy > 1e-6 || r.gridExport > 1e-6 || r.p2pIn > 1e-6) {
+            const expr = `Grid_buy = max(0, deficit_post_P2P) = max(0, ${f(r.deficit)})`;
+            html += _dcEq(`${hhs[i].name}`,
+                expr,
+                `${f(r.gridBuy)} kWh`);
+            if (r.gridExport > 1e-6) {
+                html += _dcEq(`${hhs[i].name} (export)`,
+                    `Grid_export = post-battery surplus`,
+                    `${f(r.gridExport)} kWh`);
+            }
+        }
+    }
+    if (totalGridBuy <= 1e-6 && totalGridExp <= 1e-6) {
+        html += '<p style="font-size:12.5px;color:#16a34a;font-weight:600;padding:6px 0">→ All deficits resolved by P2P. Zero grid purchases this hour.</p>';
+    } else {
+        const gridCost = totalGridBuy * cfg.gridPrice;
+        html += `<div style="margin-top:10px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:12.5px">
+            <strong>Hour ${hourLbl} grid totals:</strong>
+            buy = ${f(totalGridBuy)} kWh · export = ${f(totalGridExp)} kWh ·
+            grid cost = ${f(totalGridBuy)} × ₱${cfg.gridPrice.toFixed(2)} = <strong>₱${f2(gridCost)}</strong>
+        </div>`;
+    }
+
+    host.innerHTML = html;
+}
+
+// =====================================================================
+// MONTHLY BREAKDOWN — per-household, 12-month energy flow + formulas
+// All values pulled live from simResults (last completed simulation),
+// so changing inputs and re-running the simulation updates this view.
+// =====================================================================
+
+const _MB_MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+// Color tokens used in the rendered table and reused by exporters
+const _MB_COLORS = {
+    p2pIn:   '#16a34a', // green
+    p2pOut:  '#a855f7', // purple
+    gridIn:  '#ea580c', // orange
+    gridOut: '#0284c7', // blue
+    cost:    '#dc2626', // red — used for Grid Cost
+    text:    '#1e293b'
+};
+
+// Build the per-row metric definition for a given household.
+// Each metric is: {
+//   key:          identifier
+//   label:        display name
+//   formulaText:  italic sub-row text (formula description; per-month text or "See Phase notes")
+//   getMonthly:   (h, mIdx) => number   – numeric monthly value
+//   getMonthExpr: (h, mIdx) => string   – per-month substitution string (or null if "See Phase notes")
+//   color:        optional css color for value cells
+//   unit:         display unit suffix (e.g. " kWh")
+//   precision:    number of decimal places (default 2)
+//   prefix:       optional prefix (e.g. "PHP ")
+// }
+function _mbBuildMetricDefs(simRes) {
+    const cfg = simRes.cfg;
+    const gridPrice = cfg.gridPrice;
+    return [
+        { key:'demand', label:'Demand (kWh)',
+          formulaText:'Sum of hourly load values for the month',
+          getMonthly: (h, m) => h.monthly[m].demand,
+          getMonthExpr: () => null },
+        { key:'pvGen', label:'PV Generated (kWh)',
+          formulaText:'Σ min(PV_DC, InvCap) per hour',
+          getMonthly: (h, m) => h.monthly[m].pvGen,
+          getMonthExpr: () => null },
+        { key:'pvDirect', label:'PV Direct Use (kWh)',
+          formulaText:'Σ min(PV_gen, Demand) per hour',
+          getMonthly: (h, m) => h.monthly[m].pvDirect,
+          getMonthExpr: () => null },
+        { key:'battUsed', label:'Battery Discharged (kWh)',
+          formulaText:'Σ min(Need, MaxRate, SoC−SoC_min)',
+          getMonthly: (h, m) => h.monthly[m].battUsed,
+          getMonthExpr: () => null },
+        { key:'p2pIn', label:'P2P Received (kWh)',
+          formulaText:'Σ min(Deficit, Pool) — Phase 2',
+          getMonthly: (h, m) => h.monthly[m].p2pIn,
+          getMonthExpr: () => null,
+          color: _MB_COLORS.p2pIn },
+        { key:'p2pOut', label:'P2P Shared (kWh)',
+          formulaText:'Σ Offer × UseRatio — Phase 2',
+          getMonthly: (h, m) => h.monthly[m].p2pOut,
+          getMonthExpr: () => null,
+          color: _MB_COLORS.p2pOut },
+        { key:'gridIn', label:'Grid Buy (kWh)',
+          formulaText:'Σ max(0, Deficit − P2P_recv) — Phase 3',
+          getMonthly: (h, m) => h.monthly[m].gridIn,
+          getMonthExpr: () => null,
+          color: _MB_COLORS.gridIn },
+        { key:'gridOut', label:'Grid Export (kWh)',
+          formulaText:'Σ PV surplus after battery — Phase 3',
+          getMonthly: (h, m) => h.monthly[m].gridOut,
+          getMonthExpr: () => null,
+          color: _MB_COLORS.gridOut },
+        { key:'gridCost', label:'Grid Cost (PHP)',
+          formulaText:`E_grid × PHP ${gridPrice.toFixed(2)}/kWh`,
+          getMonthly: (h, m) => h.monthly[m].gridIn * gridPrice,
+          // Per-month substitution e.g. "576.02"
+          getMonthExpr: (h, m) => `PHP ${(h.monthly[m].gridIn * gridPrice).toFixed(2)}`,
+          color: _MB_COLORS.cost,
+          prefix: 'PHP ', precision: 2 },
+        { key:'selfSuff', label:'Self-Sufficiency (%)',
+          formulaText:'(1 − Grid Buy / Demand) × 100%',
+          getMonthly: (h, m) => {
+              const d = h.monthly[m].demand;
+              return d > 0 ? (1 - h.monthly[m].gridIn / d) * 100 : 0;
+          },
+          // Per-month substitution e.g. "(1−41.74/247.38)×100"
+          getMonthExpr: (h, m) => {
+              const d = h.monthly[m].demand, g = h.monthly[m].gridIn;
+              if (d <= 0) return '—';
+              return `(1−${g.toFixed(2)}/${d.toFixed(2)})×100`;
+          },
+          precision: 1, suffix: '%' }
+    ];
+}
+
+// Aggregate annual total for any metric using monthly accumulators
+// For self-sufficiency we use the household-level annual figure, not a sum of monthly %
+function _mbAnnualValue(metric, h) {
+    if (metric.key === 'selfSuff') {
+        // Use precomputed annual figure when available, else recompute
+        if (typeof h.selfSufficiency === 'number') return h.selfSufficiency;
+        let g = 0, d = 0;
+        for (let m = 0; m < 12; m++) { g += h.monthly[m].gridIn; d += h.monthly[m].demand; }
+        return d > 0 ? (1 - g/d) * 100 : 0;
+    }
+    let s = 0;
+    for (let m = 0; m < 12; m++) s += metric.getMonthly(h, m);
+    return s;
+}
+
+// Annual substitution string for the formula sub-row
+function _mbAnnualExpr(metric, h) {
+    if (metric.key === 'selfSuff') {
+        let g = 0, d = 0;
+        for (let m = 0; m < 12; m++) { g += h.monthly[m].gridIn; d += h.monthly[m].demand; }
+        if (d <= 0) return '—';
+        return `(1−${g.toFixed(2)}/${d.toFixed(2)})×100`;
+    }
+    if (metric.key === 'gridCost') {
+        let g = 0;
+        for (let m = 0; m < 12; m++) g += h.monthly[m].gridIn;
+        return `PHP ${(g * simResults.cfg.gridPrice).toFixed(2)}`;
+    }
+    return null;
+}
+
+// Format a numeric monthly cell value
+function _mbFmt(v, metric) {
+    const p = metric.precision != null ? metric.precision : 2;
+    if (!isFinite(v)) return '—';
+    if (Math.abs(v) < 1e-6) v = 0;
+    let s = v.toFixed(p);
+    if (metric.prefix)  s = metric.prefix + s;
+    if (metric.suffix)  s = s + metric.suffix;
+    return s;
+}
+
+function renderMonthlyBreakdown() {
+    const host = document.getElementById('mb-host');
+    if (!host || !simResults) return;
+    const hhs = simResults.households;
+    const houseSel = document.getElementById('mb-house-select');
+    const hi = houseSel ? +houseSel.value : 0;
+    const h  = hhs[hi];
+    if (!h) return;
+
+    const metrics = _mbBuildMetricDefs(simResults);
+
+    // Header row: METRIC | JAN..DEC | ANNUAL
+    let html = '';
+    html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${h.color || 'var(--primary)'}"></span>
+        <span style="font-size:14px;font-weight:700">${h.name}</span>
+    </div>`;
+
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:Arial,sans-serif">';
+    // Header
+    html += '<thead><tr>';
+    html += `<th style="padding:8px 10px;background:var(--primary);color:#fff;font-size:11px;font-weight:700;text-align:left;border:1px solid #1d4ed8;min-width:200px">METRIC</th>`;
+    _MB_MONTHS.forEach(mm => {
+        html += `<th style="padding:8px 10px;background:var(--primary);color:#fff;font-size:11px;font-weight:700;text-align:right;border:1px solid #1d4ed8;min-width:80px">${mm}</th>`;
+    });
+    html += `<th style="padding:8px 10px;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;text-align:right;border:1px solid #1d4ed8;min-width:90px">ANNUAL</th>`;
+    html += '</tr></thead><tbody>';
+
+    // For each metric — value row + italic formula row
+    metrics.forEach((metric, mi) => {
+        const altBg = mi % 2 === 0 ? '#fff' : '#f8fafc';
+        const valueColor = metric.color || _MB_COLORS.text;
+
+        // Value row
+        html += `<tr>`;
+        html += `<td style="padding:7px 10px;border:1px solid #cbd5e1;background:${altBg};font-weight:500;color:var(--text)">${metric.label}</td>`;
+        for (let m = 0; m < 12; m++) {
+            const v = metric.getMonthly(h, m);
+            html += `<td style="padding:7px 10px;border:1px solid #cbd5e1;background:${altBg};text-align:right;color:${valueColor};font-weight:500">${_mbFmt(v, metric)}</td>`;
+        }
+        const annualV = _mbAnnualValue(metric, h);
+        html += `<td style="padding:7px 10px;border:1px solid #94a3b8;background:#dbeafe;text-align:right;color:${valueColor};font-weight:700">${_mbFmt(annualV, metric)}</td>`;
+        html += `</tr>`;
+
+        // Formula row (italic)
+        html += `<tr>`;
+        html += `<td style="padding:5px 10px;border:1px solid #e2e8f0;background:${altBg};font-style:italic;color:var(--text-sec);font-size:11px">${metric.formulaText}</td>`;
+        for (let m = 0; m < 12; m++) {
+            const expr = metric.getMonthExpr(h, m);
+            const cell = expr === null ? '<span style="color:#94a3b8">See Phase notes</span>' : expr;
+            html += `<td style="padding:5px 10px;border:1px solid #e2e8f0;background:${altBg};text-align:right;font-style:italic;color:var(--text-sec);font-size:11px">${cell}</td>`;
+        }
+        const annualExpr = _mbAnnualExpr(metric, h);
+        const annualCell = annualExpr === null ? '<span style="color:#94a3b8">See Phase notes</span>' : annualExpr;
+        html += `<td style="padding:5px 10px;border:1px solid #e2e8f0;background:#eff6ff;text-align:right;font-style:italic;color:var(--text-sec);font-size:11px">${annualCell}</td>`;
+        html += `</tr>`;
+    });
+
+    html += '</tbody></table>';
+    host.innerHTML = html;
+}
+
+// ─── Build Monthly Breakdown export data (one section per household, or all) ───
+// The exported data follows the same metric × month layout as the on-screen view.
+// XLSX cells use raw numeric values (so Excel treats them as real numbers for the
+// thesis paste workflow); PDF/DOCX cells use the visually-formatted strings (e.g.
+// "PHP 576.02", "83.1%") so the printed output matches the on-screen breakdown.
+function _buildMonthlyBreakdownData() {
+    if (!simResults) return null;
+    const hhs = simResults.households;
+    const houseSel = document.getElementById('mb-house-select');
+    const hi = houseSel ? +houseSel.value : 0;
+    const h  = hhs[hi];
+    if (!h) return null;
+
+    const metrics = _mbBuildMetricDefs(simResults);
+    const cols = ['Metric'].concat(_MB_MONTHS).concat(['Annual']);
+
+    // Numeric rows (for XLSX) — formatted to keep precision
+    const numericRows = [];
+    // Display rows (for PDF/DOCX) — pre-formatted strings with prefix/suffix preserved
+    const displayRows = [];
+
+    metrics.forEach(metric => {
+        const numRow = [metric.label];
+        const dispRow = [metric.label];
+        for (let m = 0; m < 12; m++) {
+            const v = metric.getMonthly(h, m);
+            numRow.push(+(+v).toFixed(metric.precision != null ? metric.precision : 4));
+            dispRow.push(_mbFmt(v, metric));
+        }
+        const annualV = _mbAnnualValue(metric, h);
+        numRow.push(+(+annualV).toFixed(metric.precision != null ? metric.precision : 4));
+        dispRow.push(_mbFmt(annualV, metric));
+        numericRows.push(numRow);
+        displayRows.push(dispRow);
+
+        // Formula sub-row — both variants use the same italic-style text strings
+        const fRow = [metric.formulaText];
+        for (let m = 0; m < 12; m++) {
+            const expr = metric.getMonthExpr(h, m);
+            fRow.push(expr === null ? 'See Phase notes' : expr);
+        }
+        const annualExpr = _mbAnnualExpr(metric, h);
+        fRow.push(annualExpr === null ? 'See Phase notes' : annualExpr);
+        // formula rows are identical for numeric and display variants
+        numericRows.push(fRow);
+        displayRows.push(fRow.slice());
+    });
+
+    return {
+        title: `Monthly Breakdown — ${h.name}`,
+        sections: [{
+            title: `Monthly Breakdown of Energy Sharing Process — ${h.name}`,
+            sheetName: `Monthly ${h.name}`.substring(0, 31),
+            description: 'Italic-style sub-rows describe the formula used. Annual column = sum of 12 months (Self-Sufficiency uses annual aggregates).',
+            columns: cols,
+            rows: displayRows,            // used by PDF + DOCX
+            xlsxRows: numericRows,        // used by XLSX (raw numbers preserved)
+            // All month columns + annual = numeric (skip column 0 which is the metric label)
+            numericCols: Array.from({length: 13}, (_, i) => i + 1),
+            // Tell the exporter that every other row is a formula sub-row (italic, light gray)
+            formulaSubRows: true
+        }],
+        filenameStem: `Monthly_Breakdown_${h.name.replace(/\s+/g, '_')}`
+    };
+}
+
+function exportMonthlyBreakdown(format) {
+    document.querySelectorAll('.export-dropdown').forEach(d => d.style.display = 'none');
+    if (!simResults) { alert('Run a simulation first.'); return; }
+    const data = _buildMonthlyBreakdownData();
+    if (!data) { alert('No data to export.'); return; }
+    const btn = document.getElementById('btn-export-mb');
+    if (btn) {
+        btn.disabled = true; const orig = btn.innerHTML; btn.textContent = 'Building…';
+        setTimeout(() => {
+            try { _runExport(data, format); }
+            catch (e) { console.error(e); alert('Export failed: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = orig;
+        }, 30);
+    } else { _runExport(data, format); }
+}
+
+function renderDetailedTable(dayIdx) {
+    if (!simResults || !simResults.dailyBreakdown) return;
+    const tableHost = document.getElementById('dc-table-host');
+    const summaryHost = document.getElementById('dc-summary-host');
+    if (!tableHost) return;
+
+    const hhs = simResults.households;
+    const dayData = simResults.dailyBreakdown[dayIdx];
+    if (!dayData) {
+        tableHost.innerHTML = '<p style="color:var(--text-sec)">No data captured for this day.</p>';
+        return;
+    }
+
+    // --- Build the main 24-hour × N-household table ---
+    const hdrCols = [
+        'Hour','HH','Demand','PV Gen','SoC Before','Phase',
+        'PV Direct','Batt Charged','Batt Used','Deficit','P2P',
+        'SoC After','Grid Buy','Grid Export'
+    ];
+    const thStyle = 'padding:6px 8px;font-size:11px;font-weight:700;color:var(--text-sec);' +
+                    'text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border);text-align:right';
+    const thStyleL = thStyle + ';text-align:left';
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:\'SF Mono\',Consolas,monospace">';
+    html += '<thead><tr>';
+    hdrCols.forEach((c, i) => {
+        html += `<th style="${i < 2 || i === 5 ? thStyleL : thStyle}">${c}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    for (let hr = 0; hr < 24; hr++) {
+        const hourLabel = `${String(hr).padStart(2, '0')}:00`;
+        const isAlt = hr % 2 === 1;
+        const rowBg = isAlt ? 'background:rgba(37,99,235,0.025)' : '';
+
+        for (let i = 0; i < hhs.length; i++) {
+            const rec = dayData[hr] ? dayData[hr][i] : null;
+            const tdStyle  = `padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;${rowBg}`;
+            const tdStyleL = `padding:5px 8px;border-bottom:1px solid var(--border);text-align:left;${rowBg}`;
+
+            // Phase color hint
+            let phaseColor = 'var(--text-sec)';
+            if (rec) {
+                if (rec.phase === 'Charge')  phaseColor = '#16a34a';
+                else if (rec.phase === 'Deficit') phaseColor = '#dc2626';
+                else if (rec.phase === 'Battery') phaseColor = '#2563eb';
+            }
+
+            html += '<tr>';
+            // Hour label only on the first household row of each hour
+            html += `<td style="${tdStyleL};${i === 0 ? 'font-weight:700;color:var(--text)' : 'color:transparent'}">${i === 0 ? hourLabel : '·'}</td>`;
+            html += `<td style="${tdStyleL};font-weight:600;color:${hhs[i].color || 'var(--text)'}">${hhs[i].name.replace('House ', 'H')}</td>`;
+            if (!rec) {
+                for (let k = 0; k < hdrCols.length - 2; k++) html += `<td style="${tdStyle};color:var(--text-sec)">—</td>`;
+            } else {
+                html += `<td style="${tdStyle}">${_dc4(rec.demand)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.pvGen)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.socBefore)}</td>`;
+                html += `<td style="${tdStyleL};color:${phaseColor};font-weight:600">${rec.phase}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.pvDirect)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.battCharged)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.battUsed)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.deficit)}</td>`;
+                html += `<td style="${tdStyle};color:${(rec.p2pIn>1e-6)?'#16a34a':((rec.p2pOut>1e-6)?'#dc2626':'var(--text-sec)')}">${_dcP2P(rec)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.socAfter)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.gridBuy)}</td>`;
+                html += `<td style="${tdStyle}">${_dc4(rec.gridExport)}</td>`;
+            }
+            html += '</tr>';
+        }
+    }
+    html += '</tbody></table>';
+    tableHost.innerHTML = html;
+
+    // --- Build the daily summary table (mirrors section 7 of the PDF) ---
+    if (summaryHost) {
+        const totals = hhs.map((_, i) => ({
+            demand:0, pvGen:0, pvDirect:0, battCharged:0, battUsed:0,
+            p2pIn:0, p2pOut:0, gridBuy:0, gridExport:0
+        }));
+        for (let hr = 0; hr < 24; hr++) {
+            for (let i = 0; i < hhs.length; i++) {
+                const r = dayData[hr] ? dayData[hr][i] : null;
+                if (!r) continue;
+                totals[i].demand      += r.demand;
+                totals[i].pvGen       += r.pvGen;
+                totals[i].pvDirect    += r.pvDirect;
+                totals[i].battCharged += r.battCharged;
+                totals[i].battUsed    += r.battUsed;
+                totals[i].p2pIn       += r.p2pIn;
+                totals[i].p2pOut      += r.p2pOut;
+                totals[i].gridBuy     += r.gridBuy;
+                totals[i].gridExport  += r.gridExport;
+            }
+        }
+        const cfg = simResults.cfg;
+        const sumCols = ['Household','Demand','PV Gen','PV Direct','Batt Charged','Batt Used',
+                         'P2P Recv','P2P Shared','Grid Buy','Grid Export','Grid Cost','SelfSuff'];
+        let sHtml = '<div style="font-size:12px;font-weight:700;color:var(--text-sec);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Daily Summary — Day ' + (dayIdx + 1) + ' (' + _dcDayLabel(dayIdx) + ')</div>';
+        sHtml += '<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:\'SF Mono\',Consolas,monospace">';
+        sHtml += '<thead><tr>';
+        sumCols.forEach((c, i) => {
+            sHtml += `<th style="${i === 0 ? thStyleL : thStyle}">${c}</th>`;
+        });
+        sHtml += '</tr></thead><tbody>';
+
+        // Network running totals
+        let net = {demand:0, pvGen:0, pvDirect:0, battCharged:0, battUsed:0,
+                   p2pIn:0, p2pOut:0, gridBuy:0, gridExport:0, gridCost:0};
+
+        for (let i = 0; i < hhs.length; i++) {
+            const t = totals[i];
+            const gridCost = t.gridBuy * cfg.gridPrice;
+            const ss = t.demand > 0 ? (1 - t.gridBuy / t.demand) * 100 : 0;
+            net.demand+=t.demand; net.pvGen+=t.pvGen; net.pvDirect+=t.pvDirect;
+            net.battCharged+=t.battCharged; net.battUsed+=t.battUsed;
+            net.p2pIn+=t.p2pIn; net.p2pOut+=t.p2pOut;
+            net.gridBuy+=t.gridBuy; net.gridExport+=t.gridExport; net.gridCost+=gridCost;
+
+            const tdStyle  = 'padding:6px 8px;border-bottom:1px solid var(--border);text-align:right';
+            const tdStyleL = 'padding:6px 8px;border-bottom:1px solid var(--border);text-align:left';
+            sHtml += '<tr>';
+            sHtml += `<td style="${tdStyleL};font-weight:600;color:${hhs[i].color}">${hhs[i].name}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.demand)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.pvGen)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.pvDirect)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.battCharged)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.battUsed)}</td>`;
+            sHtml += `<td style="${tdStyle};color:${t.p2pIn>1e-6?'#16a34a':'var(--text-sec)'}">${_dc4(t.p2pIn)}</td>`;
+            sHtml += `<td style="${tdStyle};color:${t.p2pOut>1e-6?'#dc2626':'var(--text-sec)'}">${_dc4(t.p2pOut)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.gridBuy)}</td>`;
+            sHtml += `<td style="${tdStyle}">${_dc4(t.gridExport)}</td>`;
+            sHtml += `<td style="${tdStyle}">₱${gridCost.toFixed(2)}</td>`;
+            sHtml += `<td style="${tdStyle};font-weight:600">${ss.toFixed(2)}%</td>`;
+            sHtml += '</tr>';
+        }
+
+        // Network totals row
+        const netSS = net.demand > 0 ? (1 - net.gridBuy / net.demand) * 100 : 0;
+        const tdStyleN  = 'padding:8px;border-top:2px solid var(--border);text-align:right;font-weight:700;background:var(--bg)';
+        const tdStyleNL = 'padding:8px;border-top:2px solid var(--border);text-align:left;font-weight:700;background:var(--bg)';
+        sHtml += '<tr>';
+        sHtml += `<td style="${tdStyleNL}">Network</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.demand)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.pvGen)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.pvDirect)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.battCharged)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.battUsed)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.p2pIn)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.p2pOut)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.gridBuy)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${_dc4(net.gridExport)}</td>`;
+        sHtml += `<td style="${tdStyleN}">₱${net.gridCost.toFixed(2)}</td>`;
+        sHtml += `<td style="${tdStyleN}">${netSS.toFixed(2)}%</td>`;
+        sHtml += '</tr>';
+        sHtml += '</tbody></table>';
+
+        // Energy balance verification
+        sHtml += '<div style="margin-top:14px;padding:12px 16px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:8px;border:1px solid #86efac;font-size:12px;font-family:\'SF Mono\',Consolas,monospace">';
+        sHtml += '<div style="font-weight:700;color:#166534;margin-bottom:6px;font-family:inherit">Energy Balance Verification</div>';
+        sHtml += '<div style="color:var(--text-sec);margin-bottom:8px;font-family:inherit">Supply = PV Direct + Batt Used + P2P Received + Grid Buy &nbsp;<strong>must equal</strong>&nbsp; Demand</div>';
+        let allOk = true;
+        for (let i = 0; i < hhs.length; i++) {
+            const t = totals[i];
+            const supply = t.pvDirect + t.battUsed + t.p2pIn + t.gridBuy;
+            const err = Math.abs(supply - t.demand);
+            const ok = err < 0.005;
+            if (!ok) allOk = false;
+            sHtml += `<div>${hhs[i].name}: ${_dc4(t.pvDirect)} + ${_dc4(t.battUsed)} + ${_dc4(t.p2pIn)} + ${_dc4(t.gridBuy)} = ${_dc4(supply)} ≈ ${_dc4(t.demand)} ${ok ? '✓' : '✗ Δ=' + err.toFixed(6)}</div>`;
+        }
+        sHtml += `<div style="margin-top:6px;font-weight:700;color:${allOk ? '#166534' : '#991b1b'}">Result: ${allOk ? '✓ All households conserved (error ≈ 0)' : '✗ Imbalance detected'}</div>`;
+        sHtml += '</div>';
+
+        // Phase legend
+        sHtml += '<div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-sec)">';
+        sHtml += '<span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Charge — PV ≥ demand, battery charging</span>';
+        sHtml += '<span><span style="display:inline-block;width:10px;height:10px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Battery — battery covers shortfall</span>';
+        sHtml += '<span><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Deficit — P2P / grid required</span>';
+        sHtml += '</div>';
+
+        summaryHost.innerHTML = sHtml;
+    }
 }
 
 </script>
